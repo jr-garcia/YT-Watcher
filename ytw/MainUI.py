@@ -56,7 +56,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(QSize(700, 400))
 
         self._addWidgets()
-        # self._addToolbar()
         # self.statusBar().showMessage('Ready')
         self.resize(QSize(800, 600))
         self.setWindowIcon(QIcon(path.join(iconPath, 'logo.png')))
@@ -70,17 +69,18 @@ class MainWindow(QMainWindow):
         # self.timerConection.start(5000)
 
         self.show()
-
+        self.loadSearches()
         # updateYTD()
 
-        self.previewsWidget._queryNewSearch()
+        if len(self.searches.items()) == 0:
+            self.previewsWidget._queryNewSearch()
 
     def updateLoadingIcon(self):
         pix = self.movieSearch.currentPixmap()
         self.iconSearching = QIcon(pix)
         for s in self.searches.values():
             searchStatus = s.status
-            if searchStatus == SearchStatesEnum.searching:
+            if s.isSearching():
                 icon = self.iconSearching
             elif searchStatus == SearchStatesEnum.readyToSearch:
                 icon = self.iconReady
@@ -107,17 +107,20 @@ class MainWindow(QMainWindow):
 
         self.searchBox = SearchPropertiesWidget(self)
         dockSearchProperties = QDockWidget(self)
+        dockSearchProperties.setEnabled(False)
+        dockSearchProperties.setWidget(self.searchBox)
+        dockSearchProperties.resize(dockSearchProperties.size())
+        dockSearchProperties.resize(100, dockSearchProperties.size().height())
         dockSearchProperties.setWindowTitle('Search Properties')
         dockSearchProperties.setWindowIcon(self.iconSearch)
-        dockSearchProperties.setWidget(self.searchBox)
         self.dockSearchProperties = dockSearchProperties
         self.addDockWidget(Qt.LeftDockWidgetArea, dockSearchProperties)
 
     def focusedSearchChanged(self, word):
-        if word == '':
-            self.searchBox.setVisible(False)
+        if word == '[no searches]':
+            self.dockSearchProperties.setEnabled(False)
         else:
-            self.searchBox.setVisible(True)
+            self.dockSearchProperties.setEnabled(True)
             self.searchBox.refresh(self.searches[word])
 
     def newSearchRequested(self, word):
@@ -127,39 +130,26 @@ class MainWindow(QMainWindow):
 
         self.createNewSearch(word)
 
-    def _addToolbar(self):
-        searchAction = QAction(self.iconSearch, 'New Search', self)
-        searchAction.setShortcut('Ctrl+S')
-        searchAction.triggered.connect(self.createNewSearch)
+    def createNewSearch(self, word, fromInit=False):
+        if fromInit:
+            status = SearchStatesEnum.paused
+        else:
+            status = SearchStatesEnum.readyToSearch
 
-        self.toolbar = self.addToolBar('main')
-        toolbar = self.toolbar
-        toolbar.addAction(searchAction)
-        toolbar.setIconSize(QSize(32, 32))
-        toolbar.addSeparator()
-        toolbar.addWidget(QLabel('Update every:'))
-        toolbar.addWidget(self.spinboxRefreshTime)
-        toolbar.addWidget(QLabel('min'))
+        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady, word, None, status)
 
-    def editSearch(self):
-        search = self.searches[self.listSearches.selectedItems()[0].text()]
-        self.createNewSearch(search, True)
-
-    def createNewSearch(self, word):
-        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady, word,
-                        status=SearchStatesEnum.readyToSearch)
+        search.callback = self.searchReady
+        self.searches[word] = search
 
         if search.status == SearchStatesEnum.readyToSearch:
             icon = self.iconReady
+            search.setReady()
         else:  # search.status == SearchStatesEnum.paused:
             icon = self.iconPaused
 
-        self.searches[word] = search
         self.previewsWidget.add(search, icon)
 
-        search.setTimer(self.searchBox.getRefreshTime())
-        search.callback = self.searchReady
-        search.setReady()
+        return search
 
     def searchReady(self, word, result):
         videoID = result['id']
@@ -174,7 +164,6 @@ class MainWindow(QMainWindow):
 
         newVideoItem = self.previewsWidget.updateSearch(word, result, thumbPix)
         self.newThumbReady.connect(newVideoItem.thumbArrived)
-        # self.searchBox.refresh(search, self.searches.keys())
 
     def retrieveThumbnail(self, videoID):
         if videoID not in self.thumbnailPixmaps.keys():
@@ -196,6 +185,8 @@ class MainWindow(QMainWindow):
         for s in self.searches.values():
             s.terminate()
 
+        self.dumpSearches()
+
         super(MainWindow, self).closeEvent(*args, **kwargs)
 
     def dumpVideoInfo(self, videoID, info):
@@ -209,7 +200,7 @@ class MainWindow(QMainWindow):
                     dump(info, file, indent=4)
 
     def loadVideoInfosCache(self):
-        self.checkInfosCacheFolderPresence()
+        self.createFolderIfAbscent(cachedInfosPath)
 
         for fileName in listdir(cachedInfosPath):
             fpath = path.join(cachedInfosPath, fileName)
@@ -219,12 +210,36 @@ class MainWindow(QMainWindow):
                 infoDict = load(info)
             self.thumbsCache[videoID] = infoDict
 
-    def checkInfosCacheFolderPresence(self):
-        if not path.exists(cachedInfosPath):
-            mkdir(cachedInfosPath)
+    def dumpSearches(self):
+        for word, s in self.searches.items():
+            fileName = '_' + word + CACHEFILEEXT
+            filePath = path.join(searchesPath, fileName)
+            with open(filePath, 'w') as file:
+                searchInitDict = {'seconds': s.seconds, 'status': s.status,
+                                  'excludeds': s.excludeds, 'unit': s._unit}
+                dump(searchInitDict, file, indent=4)
+
+    def loadSearches(self):
+        self.createFolderIfAbscent(searchesPath)
+
+        for fileName in listdir(searchesPath):
+            fpath = path.join(searchesPath, fileName)
+            word, ext = path.splitext(fileName)
+            word = word[1:]
+            with open(fpath, 'r') as info:
+                search = self.createNewSearch(word, True)
+                searchInitDict = load(info)
+                search.seconds = searchInitDict['seconds']
+                status = searchInitDict['status']
+                search.excludeds = searchInitDict['excludeds']
+                search._unit = searchInitDict['unit']
+                if status == SearchStatesEnum.readyToSearch:
+                    search.forceSearchNow()
+
+            remove(fpath)
 
     def loadThumbsCache(self):
-        self.checkThumbsCacheFolderPresence()
+        self.createFolderIfAbscent(cachedThumbsPath)
 
         if not path.exists(thumbsCacheFilePath):
             with open(thumbsCacheFilePath, 'x'):
@@ -238,9 +253,9 @@ class MainWindow(QMainWindow):
                         self.thumbsCache[videoID] = path.join(cachedThumbsPath, f)
                         break
 
-    def checkThumbsCacheFolderPresence(self):
-        if not path.exists(cachedThumbsPath):
-            mkdir(cachedThumbsPath)
+    def createFolderIfAbscent(self, folderPath):
+        if not path.exists(folderPath):
+            mkdir(folderPath)
 
     def connectionCallback(self, res):
         if res:

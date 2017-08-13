@@ -1,7 +1,7 @@
 from PySide.QtGui import *
 from PySide.QtCore import QTimer, QObject
 
-from .ParallellSearcher import Searcher, SearchTypesEnum
+from .ParallellSearcher import Searcher, SearchTypesEnum, DownloaderError
 from multiprocessing import Queue, cpu_count, Pipe
 from queue import Empty, Full
 from collections import OrderedDict
@@ -9,14 +9,13 @@ from collections import OrderedDict
 
 class SearchStatesEnum(object):
     paused = 'paused'
-    searching = 'searching'
     readyToSearch = 'ready'
     error = 'error'
 
 
 class Search(QObject):
     def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, word='', excludeds=None,
-                 status=SearchStatesEnum.readyToSearch, ):
+                 status=SearchStatesEnum.readyToSearch):
         super(Search, self).__init__()
         self.thumbsCallback = thumbsCallback
         self.thumbsCache = thumbsCache
@@ -27,29 +26,35 @@ class Search(QObject):
         self.excludeds = excludeds
         self.status = status
         self.index = -1
-        self._seconds = 0
+        self._miliseconds = 2 * 60 * 1000
         self.baseCallback = baseCallback
         self.results = []
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.performSearch)
-        # self.timerResults = QTimer(self)
-        # self.timerResults.timeout.connect(self._resultsCallback)
-        # self.timerResults.start(1)
+
+        self._unit = 'minutes'
+        self._lastFoundCount = 0
+
         self._isFirstRun = True
         self.error = None
         self._externalPause = False
 
         self.resultsQueue = []
 
-        # if status == SearchStatesEnum.readyToSearch:
-        #     self.timer.start(1)
-        #     self._isFirstRun = False
-
         self.pool = Pool(4)
         self.pool.start()
+        self._isSearching = False
+        
+    def isSearching(self):
+        return self._isSearching
 
-    def setTimer(self, seconds):
-        self._seconds = seconds * 1000
+    @property
+    def seconds(self):
+        return self._miliseconds / 1000
+
+    @seconds.setter
+    def seconds(self, value):
+        self._miliseconds = value * 1000
 
     def __repr__(self):
         return '\'{}\' , {} exclusions, {}'.format(self.word, len(self.excludeds), self.status)
@@ -71,8 +76,12 @@ class Search(QObject):
 
         result, searchType = returnValue
 
+        if isinstance(result, DownloaderError):
+            raise
+
         if searchType == SearchTypesEnum.word:
-            self.setReady()
+            self._lastFoundCount = len(result['entries'])
+
             for video in result['entries']:
                 videoID = video['id']
                 if videoID in self.results:
@@ -83,6 +92,9 @@ class Search(QObject):
                     cachedVideoResult = self.videosCache[videoID]
                     self._resultsCallback((cachedVideoResult, SearchTypesEnum.video))
         elif searchType == SearchTypesEnum.video:
+            self._lastFoundCount -= 1
+            if self._lastFoundCount == 0:
+                self.setReady()
             videoID = result['id']
             self.results.append(videoID)
             if videoID not in self.thumbsCache:
@@ -95,15 +107,18 @@ class Search(QObject):
         self.thumbsCallback(result)
 
     def _setSearching(self):
-        # print('Searching for:', self.word)
         self.timer.stop()
-        self.status = SearchStatesEnum.searching
+        self._isSearching = True
 
-    def setReady(self):
-        seconds = 1 if self._isFirstRun else self._seconds
+    def setReady(self, force=False):
+        self._isSearching = False
+        miliseconds = 1 if self._isFirstRun or force else self._miliseconds
         self._isFirstRun = False
         self.status = SearchStatesEnum.readyToSearch
-        self.timer.start(seconds)
+        self.timer.start(miliseconds)
+
+    def forceSearchNow(self):
+        self.setReady(True)
 
     def setPaused(self):
         self.timer.stop()
@@ -111,7 +126,6 @@ class Search(QObject):
 
     def terminate(self):
         self.timer.stop()
-        # self.timerResults.stop()
         self.pool.terminate()
 
     def _externalPause(self, state):
@@ -204,6 +218,7 @@ class SearchPropertiesWidget(QWidget):
     def __init__(self, parent):
         super(SearchPropertiesWidget, self).__init__(parent)
 
+        self.search = None
         mainlay = QVBoxLayout()
         self.setLayout(mainlay)
         self._canceled = False
@@ -214,6 +229,8 @@ class SearchPropertiesWidget(QWidget):
         self.searchWordEdit = QLineEdit()
         self.searchWordEdit.setEnabled(False)
         self.excludedEdit = QPlainTextEdit()
+
+        self.excludedEdit.textChanged.connect(self.excludedsChanged)
         glay.addRow(QLabel('Word'), self.searchWordEdit)
         glay.addRow(QLabel('Exclude terms\n(one per line)'), self.excludedEdit)
 
@@ -223,15 +240,19 @@ class SearchPropertiesWidget(QWidget):
         comboEveryUnit = QComboBox()
         comboEveryUnit.addItems(['Seconds', 'Minutes', 'Hours'])
         comboEveryUnit.setCurrentIndex(1)
+        comboEveryUnit.setEditable(False)
         self.comboEveryUnit = comboEveryUnit
 
         layoutEvery.addWidget(self.spinboxRefreshTime)
         layoutEvery.addWidget(self.comboEveryUnit)
+        self.spinboxRefreshTime.valueChanged.connect(self.updateTimeChanged)
+        self.comboEveryUnit.currentIndexChanged.connect(self.updateTimeChanged)
         glay.addRow(QLabel('Update every'), layoutEvery)
 
         self.radioStarted = QRadioButton('Running')  # todo: implement state change on radio change
         self.radioStarted.setChecked(True)
         self.radioPaused = QRadioButton('Paused')
+        self.radioPaused.toggled.connect(self.searchStatusChanged)
         layoutStates = QVBoxLayout()
         layoutStates.addWidget(self.radioStarted)
         layoutStates.addWidget(self.radioPaused)
@@ -239,6 +260,7 @@ class SearchPropertiesWidget(QWidget):
         groupState.setLayout(layoutStates)
 
         glay.addRow(groupState)
+        self._onRefresh = False
 
     def getRefreshTime(self):
         amount = self.spinboxRefreshTime.value()
@@ -251,14 +273,51 @@ class SearchPropertiesWidget(QWidget):
         return amount
 
     def refresh(self, search):
+        self._onRefresh = True
+        self.search = search
         self.setWindowTitle('Search properties')
 
         self.searchWordEdit.setText(search.word)
 
-        self.radioStarted.setChecked(True if search.status == SearchStatesEnum.readyToSearch else False)
+        self.radioStarted.setChecked(True if search.status != SearchStatesEnum.paused else False)
+        self.radioPaused.setChecked(not self.radioStarted.isChecked())
         self.excludedEdit.setPlainText('\n'.join(search.excludeds))
         self.searchWordEdit.setEnabled(False)
-        super(SearchPropertiesWidget, self).show()
+
+        seconds = search.seconds
+        index = 0
+
+        if search._unit == 'minutes':
+            index = 1
+            seconds /= 60
+        elif search._unit == 'hours':
+            index = 2
+            seconds /= 60
+            seconds /= 60
+
+        self.comboEveryUnit.setCurrentIndex(index)
+        self.spinboxRefreshTime.setValue(seconds)
+
+        self._onRefresh = False
+
+    def searchStatusChanged(self, event):
+        if self._onRefresh:
+            return
+        if self.radioPaused.isChecked():
+            self.search.setPaused()
+        else:
+            self.search.setReady()
+
+    def excludedsChanged(self):
+        text = self.excludedEdit.toPlainText()
+        if text != '':
+            self.search.excludeds = text.split('\n')
+        else:
+            self.search.excludeds = []
+
+    def updateTimeChanged(self, event):
+        self.search.seconds = self.getRefreshTime()
+        self.search._unit = self.comboEveryUnit.currentText().lower()
 
     def close(self, *args, **kwargs):
         self._canceled = True

@@ -20,7 +20,7 @@ class SearchTypesEnum(object):
     error = 'error'
 
 
-class DonloaderError(object):
+class DownloaderError(object):
     def __init__(self, msg):
         self.msg = msg
 
@@ -77,7 +77,7 @@ class Searcher(Process):
                 return videoID, thumbPath
 
         except Exception as error:
-            return DownloadError(error)
+            raise error
 
     def run(self):
         data = None
@@ -113,7 +113,7 @@ class Searcher(Process):
                     except YoutubeDLError as error:
                         retries += 1
                         if retries == MAXRETRIES:
-                            raise error
+                            self.local.put((DownloaderError(error), searchType))
                         else:
                             sleep(1)
 

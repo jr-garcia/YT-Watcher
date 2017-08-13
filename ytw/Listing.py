@@ -227,44 +227,71 @@ class PreviewWidget(QWidget):
     newSearchRequested = Signal(str)
     tabChanged = Signal(str)
 
-    def __init__(self, iconAdd, icoonTools):
+    def __init__(self, iconAdd, iconTools):
         super(PreviewWidget, self).__init__(parent=None)
-        buttonNewSearch = QPushButton(iconAdd, '')
-        buttonNewSearch.clicked.connect(self._queryNewSearch)
+
+        toolbarSearches = QToolBar()
+        ta = toolbarSearches.addAction(iconAdd, 'New search', self._queryNewSearch)
+        ta.setShortcut('Ctrl+S')
+        ta = toolbarSearches.addAction(iconTools, 'Configuration', lambda x:x)
+        ta.setShortcut('Ctrl+C')
+
         tabWidget = QTabWidget()
-        tabWidget.setCornerWidget(buttonNewSearch)
-        tabWidget.addTab(QWidget(), icoonTools, '')
-        tabWidget.currentChanged.connect(self._currentChanged)
         self.tabWidget = tabWidget
+        self.addEmptyTab()
+        tabWidget.setCornerWidget(toolbarSearches)
+        tabWidget.currentChanged.connect(self._currentChanged)
+        tabWidget.tabCloseRequested.connect(self._tabClosing)
+        
         layoutMain = QHBoxLayout()
         layoutMain.addWidget(self.tabWidget)
 
         self.setLayout(layoutMain)
 
+        self._isEmpty = True
+
+    def addEmptyTab(self):
+        self.tabWidget.setTabsClosable(False)
+        self.tabWidget.addTab(QWidget(), '[no searches]')
+        self._isEmpty = False
+
+    def removeEmptyTab(self):
+        self.tabWidget.removeTab(0)
+        self.tabWidget.setTabsClosable(True)
+        self._isEmpty = False
+
     def _queryNewSearch(self):
-        suggested = 'cat' if self.tabWidget.count() < 2 else ''
+        suggested = 'cat' if self._isEmpty else ''
         word, ret = QInputDialog.getText(self, 'New search', 'Enter word to search for:', QLineEdit.Normal, suggested)
         if ret and word != '':
             self.newSearchRequested.emit(word)
 
     def _currentChanged(self, index):
         word = self.tabWidget.tabText(index)
-        self.tabChanged.emit(word)
+        if word != '':
+            self.tabChanged.emit(word)
+
+    def _tabClosing(self, event):
+        QMessageBox.warning(self, 'close', 'closing \'{}\' not implemented'.format(self.tabWidget.tabText(event)), QMessageBox.Ok)
 
     def add(self, search, icon):
+        if self._isEmpty:
+            self.removeEmptyTab()
         listPreviews = QListWidget()
         listPreviews.itemDoubleClicked.connect(self.openVideoInBrowser)
+        self.tabWidget.addTab(listPreviews, icon, search.word)
         search.index = self.tabWidget.count() - 1
-        self.tabWidget.insertTab(search.index, listPreviews, icon, search.word)
         self.tabWidget.setCurrentIndex(search.index)
 
-    def updateSearch(self, word, data, thumbPix):
-        for index in range(self.tabWidget.count()):
-            text = self.tabWidget.tabText(index)
-            if text == word:
-                listPreviews = self.tabWidget.widget(index)
-                break
+    def remove(self, search):
+        index = search.index
+        self.tabWidget.removeTab(index)
+        if self.tabWidget.count() == 0:
+            self.addEmptyTab()
 
+    def updateSearch(self, word, data, thumbPix):
+        index = self.findTabIndexByWord(word)
+        listPreviews = self.tabWidget.widget(index)
         item = QListWidgetItem('')
         item.setSizeHint(QSize(0, 200))
 
@@ -273,6 +300,12 @@ class PreviewWidget(QWidget):
         listPreviews.addItem(item)
         listPreviews.setItemWidget(item, newVideoItem)
         return newVideoItem
+
+    def findTabIndexByWord(self, word):
+        for index in range(self.tabWidget.count()):
+            text = self.tabWidget.tabText(index)
+            if text == word:
+                return index
 
     def openVideoInBrowser(self, item):
         view = item.listWidget().itemWidget(item)
