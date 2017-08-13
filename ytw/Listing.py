@@ -1,9 +1,9 @@
 from PySide.QtGui import *
-from PySide.QtCore import Qt, Slot, QPoint, QRect, QSize
+from PySide.QtCore import Qt, Slot, QPoint, QRect, QSize, Signal
 import datetime
 import locale
 
-# import webbrowser
+import webbrowser
 
 MAXDESCRIPTIONLEN = 150
 THUMBSIZE = 200
@@ -154,13 +154,6 @@ class Thumbnail(QWidget):
             font.setBold(True)
             labelDislike.setFont(font)
 
-        # labelDurationShadow = QLabel(self)
-        # labelDurationShadow.setFixedWidth(THUMBSIZE)
-        # labelDurationShadow.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # labelDurationShadow.move(0, THUMBSIZE - labelDislike.height() - labelDurationShadow.height())
-        # labelDurationShadow.show()
-        # labelDurationShadow.setStyleSheet("QLabel {color : black; font-size: 14px;}")
-
         labelDuration = QLabelS(self)
         labelDuration.setFixedWidth(THUMBSIZE)
         labelDuration.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -172,11 +165,9 @@ class Thumbnail(QWidget):
         if not is_live:
             labelDuration.setStyleSheet("QLabel {color : white; }")
             labelDuration.setText(str(datetime.timedelta(seconds=videoData['duration'])))
-            # labelDurationShadow.setText(str(datetime.timedelta(seconds=videoData['duration'])))
         else:
             labelDuration.setStyleSheet("QLabel {color : rgb(255, 30, 30); font-size: 14px;}")
             labelDuration.setText('LIVE')
-            # labelDurationShadow.setText('LIVE')
 
         self.totalThumbHeight = THUMBSIZE - (labelLike.height() * 2)
         self.visibleThumbHeight = THUMBSIZE - (labelLike.height())
@@ -184,13 +175,9 @@ class Thumbnail(QWidget):
         if thumbPix is None:
             thumbPix = QPixmap(THUMBSIZE, THUMBSIZE)
             thumbPix.fill(QColor(0, 70, 100, 125))
-        # imageThumb = QLabel(self)
-        # imageThumb.setFixedSize(THUMBSIZE, THUMBSIZE)
-        # imageThumb.move(0, 0)
-        # self.imageThumb = imageThumb
+
         self.pixmap = None
         self.setThumbPixmap(thumbPix)
-        # self.imageThumb.show()
 
     def setThumbPixmap(self, newQpixmap):
         self.pixmap = newQpixmap.scaled(QSize(THUMBSIZE, THUMBSIZE), Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -234,3 +221,59 @@ class QLabelS(QLabel):
 
         qp.setPen(QColor(255, 255, 255))
         qp.drawText(rct2, self.alignment(), self.text())
+
+
+class PreviewWidget(QWidget):
+    newSearchRequested = Signal(str)
+    tabChanged = Signal(str)
+
+    def __init__(self, iconAdd, icoonTools):
+        super(PreviewWidget, self).__init__(parent=None)
+        buttonNewSearch = QPushButton(iconAdd, '')
+        buttonNewSearch.clicked.connect(self._queryNewSearch)
+        tabWidget = QTabWidget()
+        tabWidget.setCornerWidget(buttonNewSearch)
+        tabWidget.addTab(QWidget(), icoonTools, '')
+        tabWidget.currentChanged.connect(self._currentChanged)
+        self.tabWidget = tabWidget
+        layoutMain = QHBoxLayout()
+        layoutMain.addWidget(self.tabWidget)
+
+        self.setLayout(layoutMain)
+
+    def _queryNewSearch(self):
+        suggested = 'cat' if self.tabWidget.count() < 2 else ''
+        word, ret = QInputDialog.getText(self, 'New search', 'Enter word to search for:', QLineEdit.Normal, suggested)
+        if ret and word != '':
+            self.newSearchRequested.emit(word)
+
+    def _currentChanged(self, index):
+        word = self.tabWidget.tabText(index)
+        self.tabChanged.emit(word)
+
+    def add(self, search, icon):
+        listPreviews = QListWidget()
+        listPreviews.itemDoubleClicked.connect(self.openVideoInBrowser)
+        search.index = self.tabWidget.count() - 1
+        self.tabWidget.insertTab(search.index, listPreviews, icon, search.word)
+        self.tabWidget.setCurrentIndex(search.index)
+
+    def updateSearch(self, word, data, thumbPix):
+        for index in range(self.tabWidget.count()):
+            text = self.tabWidget.tabText(index)
+            if text == word:
+                listPreviews = self.tabWidget.widget(index)
+                break
+
+        item = QListWidgetItem('')
+        item.setSizeHint(QSize(0, 200))
+
+        newVideoItem = VideoItem(data, self, thumbPix)
+
+        listPreviews.addItem(item)
+        listPreviews.setItemWidget(item, newVideoItem)
+        return newVideoItem
+
+    def openVideoInBrowser(self, item):
+        view = item.listWidget().itemWidget(item)
+        webbrowser.open(view.videoData['webpage_url'])

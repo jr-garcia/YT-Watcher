@@ -17,6 +17,12 @@ class SearchTypesEnum(object):
     word = 'word'
     video = 'video'
     thumb = 'thumb'
+    error = 'error'
+
+
+class DonloaderError(object):
+    def __init__(self, msg):
+        self.msg = msg
 
 
 class Searcher(Process):
@@ -71,7 +77,7 @@ class Searcher(Process):
                 return videoID, thumbPath
 
         except Exception as error:
-            raise error
+            return DownloadError(error)
 
     def run(self):
         data = None

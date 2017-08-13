@@ -15,8 +15,8 @@ class SearchStatesEnum(object):
 
 
 class Search(QObject):
-    def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, word='', excludeds=None, status=SearchStatesEnum.readyToSearch,
-                 ):
+    def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, word='', excludeds=None,
+                 status=SearchStatesEnum.readyToSearch, ):
         super(Search, self).__init__()
         self.thumbsCallback = thumbsCallback
         self.thumbsCache = thumbsCache
@@ -68,7 +68,7 @@ class Search(QObject):
             else:
                 self.terminate()
                 raise returnValue
-        
+
         result, searchType = returnValue
 
         if searchType == SearchTypesEnum.word:
@@ -85,8 +85,6 @@ class Search(QObject):
         elif searchType == SearchTypesEnum.video:
             videoID = result['id']
             self.results.append(videoID)
-            if videoID not in self.videosCache.keys():
-                self.videosCache[videoID] = result
             if videoID not in self.thumbsCache:
                 thumbURL = result['thumbnail']
                 self.pool.appendTask(((thumbURL, videoID), SearchTypesEnum.thumb), self.thumbsHandler)
@@ -120,83 +118,6 @@ class Search(QObject):
         self.queue.put_nowait(state)
 
 
-class SearchBox(QDialog):
-    def __init__(self, parent, app, icon):
-        global qApp
-        super(SearchBox, self).__init__(parent)
-        self.setWindowIcon(icon)
-        qApp = app
-        mainlay = QVBoxLayout()
-        self.setLayout(mainlay)
-        self._canceled = False
-
-        glay = QFormLayout()
-        mainlay.addLayout(glay)
-
-        self.searchWordEdit = QLineEdit()
-        self.searchWordEdit.textEdited.connect(self.switchOk)
-        self.excludedEdit = QPlainTextEdit()
-        glay.addRow(QLabel('Word'), self.searchWordEdit)
-        glay.addRow(QLabel('Exclude terms\n(one per line)'), self.excludedEdit)
-
-        self.startedCheck = QCheckBox('Started')
-        self.startedCheck.setChecked(True)
-        glay.addWidget(self.startedCheck)
-
-        hlay = QHBoxLayout()
-        mainlay.addLayout(hlay)
-        self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-
-        self.buttonBox.accepted.connect(self.ready)
-        self.buttonBox.rejected.connect(self.close)
-        hlay.addWidget(self.buttonBox)
-
-    def show(self, search, isEdit=False):
-        if isEdit:
-            self.setWindowTitle('Edit search')
-        else:
-            self.setWindowTitle('New search')
-
-        self._canceled = False
-        self.searchWordEdit.setText(search.word)
-        self.searchWordEdit.setEnabled(not isEdit)
-        self.startedCheck.setChecked(True if search.status == SearchStatesEnum.readyToSearch else False)
-        self.excludedEdit.setPlainText('\n'.join(search.excludeds))
-        self.searchWordEdit.setFocus()
-        self.switchOk()
-
-        self.setModal(True)
-        super(SearchBox, self).show()
-
-        while self.isVisible():
-            qApp.processEvents()
-
-        if self.searchWordEdit.text() == '' or self._canceled or self.result() == QDialog.Rejected:
-            search.terminate()
-            return None
-        else:
-            excludes = []
-            exText = self.excludedEdit.toPlainText()
-            if exText != '':
-                excludes = exText.split('\n')
-            search.terminate()
-            newSearch = Search(search.videosCache, search.thumbsCache, search.baseCallback, search.thumbsCallback,
-                               self.searchWordEdit.text(), excludes, SearchStatesEnum.readyToSearch if
-                               self.startedCheck.isChecked() else SearchStatesEnum.paused)
-            return newSearch
-
-    def close(self, *args, **kwargs):
-        self._canceled = True
-        super(SearchBox, self).close()
-
-    def switchOk(self):
-        self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(bool(len(self.searchWordEdit.text())))
-
-    def ready(self):
-        self.setResult(QDialog.Accepted)
-        self.hide()
-
-
 class Pool(QObject):
     def __init__(self, number=cpu_count(), *args, **kwargs):
         super(Pool, self).__init__(*args, **kwargs)
@@ -225,7 +146,7 @@ class Pool(QObject):
 
     def stop(self):
         self.timer.stop()
-            
+
     def appendTask(self, data, callback):
         self.tasks.append((data, callback))
 
@@ -277,3 +198,77 @@ class Pool(QObject):
 
         for s in self.searchers.values():
             s.terminate()
+
+
+class SearchPropertiesWidget(QWidget):
+    def __init__(self, parent):
+        super(SearchPropertiesWidget, self).__init__(parent)
+
+        mainlay = QVBoxLayout()
+        self.setLayout(mainlay)
+        self._canceled = False
+
+        glay = QFormLayout()
+        mainlay.addLayout(glay)
+
+        self.searchWordEdit = QLineEdit()
+        self.searchWordEdit.setEnabled(False)
+        self.excludedEdit = QPlainTextEdit()
+        glay.addRow(QLabel('Word'), self.searchWordEdit)
+        glay.addRow(QLabel('Exclude terms\n(one per line)'), self.excludedEdit)
+
+        layoutEvery = QHBoxLayout()
+        self.spinboxRefreshTime = QSpinBox()
+        self.spinboxRefreshTime.setValue(2)
+        comboEveryUnit = QComboBox()
+        comboEveryUnit.addItems(['Seconds', 'Minutes', 'Hours'])
+        comboEveryUnit.setCurrentIndex(1)
+        self.comboEveryUnit = comboEveryUnit
+
+        layoutEvery.addWidget(self.spinboxRefreshTime)
+        layoutEvery.addWidget(self.comboEveryUnit)
+        glay.addRow(QLabel('Update every'), layoutEvery)
+
+        self.radioStarted = QRadioButton('Running')  # todo: implement state change on radio change
+        self.radioStarted.setChecked(True)
+        self.radioPaused = QRadioButton('Paused')
+        layoutStates = QVBoxLayout()
+        layoutStates.addWidget(self.radioStarted)
+        layoutStates.addWidget(self.radioPaused)
+        groupState = QGroupBox('State')
+        groupState.setLayout(layoutStates)
+
+        glay.addRow(groupState)
+
+    def getRefreshTime(self):
+        amount = self.spinboxRefreshTime.value()
+        lowTex = self.comboEveryUnit.currentText().lower()
+        if lowTex == 'minutes':
+            amount *= 60
+        if lowTex == 'hours':
+            amount *= 60 * 60
+
+        return amount
+
+    def refresh(self, search):
+        self.setWindowTitle('Search properties')
+
+        self.searchWordEdit.setText(search.word)
+
+        self.radioStarted.setChecked(True if search.status == SearchStatesEnum.readyToSearch else False)
+        self.excludedEdit.setPlainText('\n'.join(search.excludeds))
+        self.searchWordEdit.setEnabled(False)
+        super(SearchPropertiesWidget, self).show()
+
+    def close(self, *args, **kwargs):
+        self._canceled = True
+        super(SearchPropertiesWidget, self).close()
+
+    def ready(self):
+        self.setResult(QDialog.Accepted)
+        self.hide()
+
+
+def setApp(app):
+    global qApp
+    qApp = app
