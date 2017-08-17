@@ -9,7 +9,7 @@ from .updateYT_DL import is_YTDL_importable, updateYTD
 
 CACHEFILEEXT = '.cache'
 
-WINDOWFILENAME = 'win.config'
+WINDOWFILENAME = 'win.ini'
 
 if not is_YTDL_importable():
     updateYTD(True)
@@ -18,12 +18,8 @@ from .Listing import *
 from .Searching import *
 from ._paths import *
 
-mainWin = None
-
-try:
-    import urllib3 as ulib
-except ImportError:
-    import urllib as ulib
+import urllib3 as ulib
+from PySide.QtCore import QSettings
 
 
 class MainWindow(QMainWindow):
@@ -220,55 +216,34 @@ class MainWindow(QMainWindow):
         self.newSearchCallback(search, True)
 
     def closeEvent(self, *args, **kwargs):
-        for s in self.searches.values():
-            s.terminate()
+        self.previewsWidget.clear()
 
         self.dumpSearches()
         self.saveWindowsPlaces()
 
+        for s in self.searches.values():
+            s.terminate()
+
         super(MainWindow, self).closeEvent(*args, **kwargs)
 
     def saveWindowsPlaces(self):
-        data = {}
-        self.previewsWidget.clear()
-        # data['win.state'] = self.saveState()
-        data['win.size'] = self.size().toTuple()  # should be only for non maximized windows
-        data['win.max'] = self.isMaximized()
-        data['win.pos'] = self.pos().toTuple()
-        data['dock.max'] = self.dockSearchProperties.isMaximized()
-        data['dock.floating'] = self.dockSearchProperties.isFloating()
-        data['dock.size'] = self.dockSearchProperties.size().toTuple()
-        data['dock.pos'] = self.dockSearchProperties.pos().toTuple()
         filePath = path.join(OPTIONSPATH, WINDOWFILENAME)
         if path.exists(filePath):
             remove(filePath)
-        with open(filePath, 'x') as file:
-            dump(data, file, indent=4)
+        settings = QSettings(filePath, QSettings.IniFormat)
+        # settings.setValue('dock.floating', int(self.dockSearchProperties.isFloating()))
+        settings.setValue('geometry', self.saveGeometry())
+        settings.setValue('state', self.saveState())
 
     def loadWindowsPlaces(self):
         filePath = path.join(OPTIONSPATH, WINDOWFILENAME)
         if not path.exists(filePath):
             return
-        with open(filePath, 'r') as file:
-            data = load(file)
+        settings = QSettings(filePath, QSettings.IniFormat)
 
-        w, h = data['win.size']
-        self.resize(w, h)
-        if data['win.max']:
-            self.showMaximized()
-        x, y = data['win.pos']
-        self.move(x, y)
-        
-        isFloating = data['dock.floating']
-
-        w, h = data['dock.size']
-        self.dockSearchProperties.resize(w, h)
-        x2, y2 = data['dock.pos']
-        if not isFloating:
-            x2 += x
-            y2 += y
-        self.dockSearchProperties.setFloating(isFloating)
-        self.dockSearchProperties.move(x2, y2)
+        self.restoreGeometry(settings.value('geometry'))
+        self.restoreState(settings.value('state'))
+        # self.dockSearchProperties.setFloating(bool(settings.value('dock.floating')))
 
     def dumpVideoInfo(self, videoID, info):
         if path.exists(cachedInfosPath):
@@ -295,6 +270,8 @@ class MainWindow(QMainWindow):
         for word, s in self.searches.items():
             fileName = '_' + word + CACHEFILEEXT
             filePath = path.join(searchesPath, fileName)
+            if path.exists(filePath):
+                remove(filePath)
             with open(filePath, 'w') as file:
                 searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s._unit,
                                   'index'  : s.index}
@@ -329,7 +306,6 @@ class MainWindow(QMainWindow):
                     if status == SearchStatesEnum.readyToSearch:
                         search.forceSearchNow()
 
-            remove(fpath)
 
     def loadThumbsCache(self):
         self.createFolderIfAbscent(cachedThumbsPath)
