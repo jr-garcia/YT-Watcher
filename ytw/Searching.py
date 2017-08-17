@@ -77,7 +77,7 @@ class Search(QObject):
         result, searchType = returnValue
 
         if isinstance(result, DownloaderError):
-            raise
+            raise result
 
         if searchType == SearchTypesEnum.word:
             self._lastFoundCount = len(result['entries'])
@@ -86,7 +86,7 @@ class Search(QObject):
                 videoID = video['id']
                 if videoID in self.results:
                     continue
-                if videoID not in self.videosCache.keys():
+                if videoID not in self.videosCache.keys(): # _GyCEgnFfaNo
                     self.pool.appendTask((video['url'], SearchTypesEnum.video), self._resultsCallback)
                 else:
                     cachedVideoResult = self.videosCache[videoID]
@@ -97,7 +97,7 @@ class Search(QObject):
                 self.setReady()
             videoID = result['id']
             self.results.append(videoID)
-            if videoID not in self.thumbsCache:
+            if videoID not in self.thumbsCache.keys():
                 thumbURL = result['thumbnail']
                 self.pool.appendTask(((thumbURL, videoID), SearchTypesEnum.thumb), self.thumbsHandler)
 

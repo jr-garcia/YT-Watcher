@@ -9,6 +9,8 @@ from .updateYT_DL import is_YTDL_importable, updateYTD
 
 CACHEFILEEXT = '.cache'
 
+WINDOWFILENAME = 'win.config'
+
 if not is_YTDL_importable():
     updateYTD(True)
 
@@ -27,8 +29,11 @@ except ImportError:
 class MainWindow(QMainWindow):
     newThumbReady = Signal(str, object)
 
-    def __init__(self, app):
+    def __init__(self):
         super(MainWindow, self).__init__()
+        self.createFolderIfAbscent(CACHESPATH)
+        self.createFolderIfAbscent(OPTIONSPATH)
+
         self.videoInfosCache = {}
         self.thumbsCache = {}
         self.thumbnailPixmaps = {}
@@ -52,6 +57,7 @@ class MainWindow(QMainWindow):
         self.iconTools = QIcon(path.join(brightPath, 'tools.png'))
         self.movieSearch.updated.connect(self.updateLoadingIcon)
 
+        self._isChangedFromAction = False
         self.setWindowTitle('YT Watcher')
         self.setMinimumSize(QSize(700, 400))
 
@@ -69,11 +75,29 @@ class MainWindow(QMainWindow):
         # self.timerConection.start(5000)
 
         self.show()
+        self.loadWindowsPlaces()
         self.loadSearches()
         # updateYTD()
 
         if len(self.searches.items()) == 0:
             self.previewsWidget._queryNewSearch()
+
+    def searchPropertiesBoxCheckedChanged(self, isVisible):
+        if self._isChangedFromAction:
+            return
+        self._isChangedFromAction = True
+        if isVisible:
+            self.dockSearchProperties.show()
+        else:
+            self.dockSearchProperties.hide()
+        self._isChangedFromAction = False
+
+    def searchPropertiesBoxVsibilityChanged(self):
+        if self._isChangedFromAction:
+            return
+        self._isChangedFromAction = True
+        self.previewsWidget.actionSearchProperties.setChecked(self.dockSearchProperties.isVisible())
+        self._isChangedFromAction = False
 
     def updateLoadingIcon(self):
         pix = self.movieSearch.currentPixmap()
@@ -95,26 +119,34 @@ class MainWindow(QMainWindow):
         self.move(qr.topLeft())
 
     def _addWidgets(self):
-        prevWid = PreviewWidget(self.iconAdd, self.iconTools)
+        prevWid = PreviewWidget(self.iconAdd, self.iconTools, self.iconSearch)
         prevWid.newSearchRequested.connect(self.newSearchRequested)
+        prevWid.removeSearchRequested.connect(self.removeSearchRequested)
         prevWid.tabChanged.connect(self.focusedSearchChanged)
+        prevWid.searchPropertiesCheckChanged.connect(self.searchPropertiesBoxCheckedChanged)
+        prevWid.searchIndexChanged.connect(self.searchIndexChanged)
+        prevWid.setObjectName('previewsWidget')
         self.previewsWidget = prevWid
 
-        self.setCentralWidget(self.previewsWidget)
+        self.setCentralWidget(prevWid)
 
         self.layoutMain = QHBoxLayout()
         self.setLayout(self.layoutMain)
 
         self.searchBox = SearchPropertiesWidget(self)
-        dockSearchProperties = QDockWidget(self)
+        dockSearchProperties = QDockWidget()
+        dockSearchProperties.setObjectName('dockSearchProperties')
+        dockSearchProperties.visibilityChanged.connect(self.searchPropertiesBoxVsibilityChanged)
         dockSearchProperties.setEnabled(False)
         dockSearchProperties.setWidget(self.searchBox)
         dockSearchProperties.resize(dockSearchProperties.size())
         dockSearchProperties.resize(100, dockSearchProperties.size().height())
         dockSearchProperties.setWindowTitle('Search Properties')
-        dockSearchProperties.setWindowIcon(self.iconSearch)
         self.dockSearchProperties = dockSearchProperties
         self.addDockWidget(Qt.LeftDockWidgetArea, dockSearchProperties)
+
+    def searchIndexChanged(self, word, index):
+        self.searches[word].index = index
 
     def focusedSearchChanged(self, word):
         if word == '[no searches]':
@@ -129,6 +161,14 @@ class MainWindow(QMainWindow):
             return
 
         self.createNewSearch(word)
+
+    def removeSearchRequested(self, word):
+        res = QMessageBox.question(self, 'Remove search', 'Are you sure you want to remove search of \'{}\''.format(word),
+                                   QMessageBox.Yes, QMessageBox.No)
+        if res == QMessageBox.No:
+            return
+        search = self.searches.pop(word)
+        self.previewsWidget.remove(search)
 
     def createNewSearch(self, word, fromInit=False):
         if fromInit:
@@ -174,8 +214,6 @@ class MainWindow(QMainWindow):
         data, searchType = result
         videoID, thumbPath = data
         self.thumbsCache[videoID] = thumbPath
-        with open(thumbsCacheFilePath, 'a') as tc:
-            print(videoID, file=tc)
         self.newThumbReady.emit(videoID, self.retrieveThumbnail)
 
     def editSearchCallback(self, search):
@@ -186,8 +224,51 @@ class MainWindow(QMainWindow):
             s.terminate()
 
         self.dumpSearches()
+        self.saveWindowsPlaces()
 
         super(MainWindow, self).closeEvent(*args, **kwargs)
+
+    def saveWindowsPlaces(self):
+        data = {}
+        self.previewsWidget.clear()
+        # data['win.state'] = self.saveState()
+        data['win.size'] = self.size().toTuple()  # should be only for non maximized windows
+        data['win.max'] = self.isMaximized()
+        data['win.pos'] = self.pos().toTuple()
+        data['dock.max'] = self.dockSearchProperties.isMaximized()
+        data['dock.floating'] = self.dockSearchProperties.isFloating()
+        data['dock.size'] = self.dockSearchProperties.size().toTuple()
+        data['dock.pos'] = self.dockSearchProperties.pos().toTuple()
+        filePath = path.join(OPTIONSPATH, WINDOWFILENAME)
+        if path.exists(filePath):
+            remove(filePath)
+        with open(filePath, 'x') as file:
+            dump(data, file, indent=4)
+
+    def loadWindowsPlaces(self):
+        filePath = path.join(OPTIONSPATH, WINDOWFILENAME)
+        if not path.exists(filePath):
+            return
+        with open(filePath, 'r') as file:
+            data = load(file)
+
+        w, h = data['win.size']
+        self.resize(w, h)
+        if data['win.max']:
+            self.showMaximized()
+        x, y = data['win.pos']
+        self.move(x, y)
+        
+        isFloating = data['dock.floating']
+
+        w, h = data['dock.size']
+        self.dockSearchProperties.resize(w, h)
+        x2, y2 = data['dock.pos']
+        if not isFloating:
+            x2 += x
+            y2 += y
+        self.dockSearchProperties.setFloating(isFloating)
+        self.dockSearchProperties.move(x2, y2)
 
     def dumpVideoInfo(self, videoID, info):
         if path.exists(cachedInfosPath):
@@ -208,50 +289,54 @@ class MainWindow(QMainWindow):
             videoID = videoID[1:]
             with open(fpath, 'r') as info:
                 infoDict = load(info)
-            self.thumbsCache[videoID] = infoDict
+            self.videoInfosCache[videoID] = infoDict
 
     def dumpSearches(self):
         for word, s in self.searches.items():
             fileName = '_' + word + CACHEFILEEXT
             filePath = path.join(searchesPath, fileName)
             with open(filePath, 'w') as file:
-                searchInitDict = {'seconds': s.seconds, 'status': s.status,
-                                  'excludeds': s.excludeds, 'unit': s._unit}
+                searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s._unit,
+                                  'index'  : s.index}
                 dump(searchInitDict, file, indent=4)
 
     def loadSearches(self):
         self.createFolderIfAbscent(searchesPath)
+        lastIndex = 0
+        lastChecked = 0
 
-        for fileName in listdir(searchesPath):
+        fileList = listdir(searchesPath)
+        while len(fileList) > 0:
+            fileName = fileList[lastChecked]
             fpath = path.join(searchesPath, fileName)
             word, ext = path.splitext(fileName)
             word = word[1:]
             with open(fpath, 'r') as info:
-                search = self.createNewSearch(word, True)
                 searchInitDict = load(info)
-                search.seconds = searchInitDict['seconds']
-                status = searchInitDict['status']
-                search.excludeds = searchInitDict['excludeds']
-                search._unit = searchInitDict['unit']
-                if status == SearchStatesEnum.readyToSearch:
-                    search.forceSearchNow()
+                index = searchInitDict['index']
+                if index > lastIndex:
+                    lastChecked += 1
+                    continue
+                else:
+                    fileList.pop(lastChecked)
+                    lastIndex += 1
+                    lastChecked = 0
+                    search = self.createNewSearch(word, True)
+                    search.seconds = searchInitDict['seconds']
+                    status = searchInitDict['status']
+                    search.excludeds = searchInitDict['excludeds']
+                    search._unit = searchInitDict['unit']
+                    if status == SearchStatesEnum.readyToSearch:
+                        search.forceSearchNow()
 
             remove(fpath)
 
     def loadThumbsCache(self):
         self.createFolderIfAbscent(cachedThumbsPath)
 
-        if not path.exists(thumbsCacheFilePath):
-            with open(thumbsCacheFilePath, 'x'):
-                pass
-
-        with open(thumbsCacheFilePath, 'r') as tc:
-            for videoID in tc:
-                videoID = videoID.split()[0]
-                for f in listdir(cachedThumbsPath):
-                    if f.startswith('_' + videoID):
-                        self.thumbsCache[videoID] = path.join(cachedThumbsPath, f)
-                        break
+        for fileName in listdir(cachedThumbsPath):
+            videoID = fileName.split('_thumb')[0][1:]
+            self.thumbsCache[videoID] = path.join(cachedThumbsPath, fileName)
 
     def createFolderIfAbscent(self, folderPath):
         if not path.exists(folderPath):
@@ -290,5 +375,5 @@ def _pickleableCheck(dummy):
 def _runMainWindow():
     app = QApplication('')
     setApp(app)
-    mainWin = MainWindow(app)
+    mainWin = MainWindow()
     sys.exit(app.exec_())

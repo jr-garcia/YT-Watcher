@@ -103,3 +103,4 @@ ENV/
 .idea/
 /ytw/caches/
 /ytw/youtube_dl/
+/ytw/options/

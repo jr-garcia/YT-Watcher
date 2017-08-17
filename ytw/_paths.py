@@ -6,9 +6,9 @@ iconPath = path.join(currentDir, 'icons')
 brightPath = path.join(iconPath, 'Bright')
 
 CACHESPATH = path.abspath(path.join(currentDir, 'caches'))
+OPTIONSPATH = path.abspath(path.join(currentDir, 'options'))
 
 cachedInfosPath = path.join(CACHESPATH, 'infos')
-searchesPath = path.join(CACHESPATH, 'searches')
+searchesPath = path.join(OPTIONSPATH, 'searches')
 cachedThumbsPath = path.join(CACHESPATH, 'thumbs')
-thumbsCacheFilePath = path.join(CACHESPATH, 'thumbs.cache')
 

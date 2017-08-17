@@ -225,40 +225,71 @@ class QLabelS(QLabel):
 
 class PreviewWidget(QWidget):
     newSearchRequested = Signal(str)
+    removeSearchRequested = Signal(str)
     tabChanged = Signal(str)
+    searchPropertiesCheckChanged = Signal(bool)
+    searchIndexChanged = Signal(str, int)
 
-    def __init__(self, iconAdd, iconTools):
+    def __init__(self, iconAdd, iconTools, iconSearch):
         super(PreviewWidget, self).__init__(parent=None)
 
         toolbarSearches = QToolBar()
+        toolbarSearches.setObjectName('toolbarSearches')
+        self.toolbarSearches = toolbarSearches
         ta = toolbarSearches.addAction(iconAdd, 'New search', self._queryNewSearch)
         ta.setShortcut('Ctrl+S')
-        ta = toolbarSearches.addAction(iconTools, 'Configuration', lambda x:x)
+        ta = toolbarSearches.addAction(iconTools, 'Configuration', lambda x: x)
         ta.setShortcut('Ctrl+C')
+        ta = toolbarSearches.addAction(iconSearch, 'Search properties')
+        ta.setShortcut('Ctrl+P')
+        ta.toggled.connect(self._searchPropertiesCheckChanged)
+        ta.setCheckable(True)
+        self.actionSearchProperties = ta
 
         tabWidget = QTabWidget()
+        tabWidget.setObjectName('tabWidget')
         self.tabWidget = tabWidget
         self.addEmptyTab()
+        tabWidget.setMovable(True)
         tabWidget.setCornerWidget(toolbarSearches)
         tabWidget.currentChanged.connect(self._currentChanged)
         tabWidget.tabCloseRequested.connect(self._tabClosing)
-        
+        tabWidget.tabBar().tabMoved.connect(self.tabsMoved)
+
         layoutMain = QHBoxLayout()
         layoutMain.addWidget(self.tabWidget)
 
         self.setLayout(layoutMain)
 
         self._isEmpty = True
+        self._isEmmitingCheckChanged = False
+        self._onInitialPlacement = False
+
+    def clear(self):
+        for index in range(self.tabWidget.count()):
+            self.tabWidget.widget(index).clear()
+            self.tabWidget.removeTab(index)
+
+    def tabsMoved(self):
+        if not self._onInitialPlacement:
+            self.updateSearchesIndexes()
+
+    def _searchPropertiesCheckChanged(self, event):
+        if self._isEmmitingCheckChanged:
+            return
+        self._isEmmitingCheckChanged = True
+        self.searchPropertiesCheckChanged.emit(event)
+        self._isEmmitingCheckChanged = False
 
     def addEmptyTab(self):
+        self._isEmpty = False
         self.tabWidget.setTabsClosable(False)
         self.tabWidget.addTab(QWidget(), '[no searches]')
-        self._isEmpty = False
 
     def removeEmptyTab(self):
+        self._isEmpty = False
         self.tabWidget.removeTab(0)
         self.tabWidget.setTabsClosable(True)
-        self._isEmpty = False
 
     def _queryNewSearch(self):
         suggested = 'cat' if self._isEmpty else ''
@@ -271,13 +302,19 @@ class PreviewWidget(QWidget):
         if word != '':
             self.tabChanged.emit(word)
 
-    def _tabClosing(self, event):
-        QMessageBox.warning(self, 'close', 'closing \'{}\' not implemented'.format(self.tabWidget.tabText(event)), QMessageBox.Ok)
+    def updateSearchesIndexes(self):
+        for index in range(self.tabWidget.count()):
+            word = self.tabWidget.tabText(index)
+            self.searchIndexChanged.emit(word, index)
+
+    def _tabClosing(self, index):
+        self.removeSearchRequested.emit(self.tabWidget.tabText(index))
 
     def add(self, search, icon):
         if self._isEmpty:
             self.removeEmptyTab()
         listPreviews = QListWidget()
+        listPreviews.setObjectName(search.word)
         listPreviews.itemDoubleClicked.connect(self.openVideoInBrowser)
         self.tabWidget.addTab(listPreviews, icon, search.word)
         search.index = self.tabWidget.count() - 1
@@ -288,6 +325,8 @@ class PreviewWidget(QWidget):
         self.tabWidget.removeTab(index)
         if self.tabWidget.count() == 0:
             self.addEmptyTab()
+        else:
+            self.updateSearchesIndexes()
 
     def updateSearch(self, word, data, thumbPix):
         index = self.findTabIndexByWord(word)

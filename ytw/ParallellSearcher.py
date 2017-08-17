@@ -20,9 +20,9 @@ class SearchTypesEnum(object):
     error = 'error'
 
 
-class DownloaderError(object):
+class DownloaderError(Exception):
     def __init__(self, msg):
-        self.msg = msg
+        self.msg = str(msg)
 
 
 class Searcher(Process):
@@ -61,10 +61,14 @@ class Searcher(Process):
             elif searchType == SearchTypesEnum.video:
                 resultsExtractor = self.resultsExtractor
                 videoInfo = resultsExtractor.extract(what)
-                if videoInfo['uploader'] is None:
+                if not self.hasValidData(videoInfo):
                     videoInfo = resultsExtractor.extract(what)
-                    if videoInfo['uploader'] is None:
-                        raise YoutubeDLError('Null uploader')
+                    if not self.hasValidData(videoInfo):
+                        raise YoutubeDLError('Null uploader or like_count')
+                if videoInfo['like_count'] is None:
+                    videoInfo['like_count'] = 0
+                if videoInfo['dislike_count'] is None:
+                    videoInfo['dislike_count'] = 0
                 return videoInfo
             else:
                 thumbURL, videoID = what
@@ -78,6 +82,12 @@ class Searcher(Process):
 
         except Exception as error:
             raise error
+
+    def hasValidData(self, videoInfo):
+        if videoInfo['uploader'] is None:
+            return False
+        else:
+            return True
 
     def run(self):
         data = None
