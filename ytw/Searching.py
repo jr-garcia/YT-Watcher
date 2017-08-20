@@ -32,7 +32,7 @@ class Search(QObject):
         self.baseCallback = baseCallback
         self.results = []
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.performSearch)
+        self.timer.timeout.connect(self._performSearch)
 
         self._unit = 'minutes'
         self._lastFoundCount = 0
@@ -73,7 +73,7 @@ class Search(QObject):
     def __repr__(self):
         return '\'{}\' , {} exclusions, {}'.format(self.word, len(self.excludeds), self.status)
 
-    def performSearch(self):
+    def _performSearch(self):
         self._setSearching()
         self.pool.appendTask((self.word, SearchTypesEnum.word), self._resultsCallback)
 
@@ -126,9 +126,9 @@ class Search(QObject):
         self.timer.stop()
         self._isSearching = True
 
-    def setReady(self, force=False):
+    def setReady(self):
         self._isSearching = False
-        miliseconds = 1 if self._isFirstRun or force else self._miliseconds
+        miliseconds = 1 if self._isFirstRun else self._miliseconds
         self._isFirstRun = False
         self.status = SearchStatesEnum.readyToSearch
         self.timer.start(miliseconds)
@@ -138,7 +138,7 @@ class Search(QObject):
         self.timer.start(self._miliseconds)
 
     def forceSearchNow(self):
-        self.setReady(True)
+        self._performSearch()
 
     def setPaused(self):
         self.timer.stop()
@@ -170,6 +170,7 @@ class Pool(QObject):
             sid = id(s)
             self.searchers[sid] = s
             client = Queue()
+            client.cancel_join_thread()
             self.locals[sid] = client
             self.remotes[sid] = s.prepareConnections(client)
             s.start()

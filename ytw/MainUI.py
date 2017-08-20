@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
             remove(filePath)
         search = self.searches.pop(word)
         self.previewsWidget.remove(search)
+        search.terminate()
 
     def createNewSearch(self, word, fromInit=False):
         if fromInit:
@@ -183,7 +184,7 @@ class MainWindow(QMainWindow):
 
         if search.status == SearchStatesEnum.readyToSearch:
             icon = self.iconReady
-            search.setReady()
+            search.forceSearchNow()
         else:  # search.status == SearchStatesEnum.paused:
             icon = self.iconPaused
 
