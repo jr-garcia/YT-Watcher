@@ -31,6 +31,7 @@ class Searcher(Process):
         super(Searcher, self).__init__()
 
         self.local = Queue()
+        self.local.cancel_join_thread()
         self.remote = None
 
         self.thumbsCachePath = ''
@@ -100,7 +101,7 @@ class Searcher(Process):
                         retries = 0
                     except Empty:
                         pass
-                    except EOFError:
+                    except:
                         self._isRunning = False
 
                 if data is None:

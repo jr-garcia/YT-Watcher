@@ -1,5 +1,5 @@
 from PySide.QtGui import *
-from PySide.QtCore import QTimer, QObject
+from PySide.QtCore import QTimer, QObject, Signal
 
 from .ParallellSearcher import Searcher, SearchTypesEnum, DownloaderError
 from multiprocessing import Queue, cpu_count, Pipe
@@ -14,6 +14,8 @@ class SearchStatesEnum(object):
 
 
 class Search(QObject):
+    notRead = Signal()
+
     def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, word='', excludeds=None,
                  status=SearchStatesEnum.readyToSearch):
         super(Search, self).__init__()
@@ -46,7 +48,16 @@ class Search(QObject):
         self.pool = Pool(4)
         self.pool.start()
         self._isSearching = False
-        
+        self._isRead = True
+
+    @property
+    def isRead(self):
+        return self._isRead
+
+    @isRead.setter
+    def isRead(self, value):
+        self._isRead = value
+
     def isSearching(self):
         return self._isSearching
 
@@ -80,7 +91,8 @@ class Search(QObject):
         result, searchType = returnValue
 
         if isinstance(result, DownloaderError):
-            raise result
+            print(result)  # todo:implement proper logging
+            return
 
         if searchType == SearchTypesEnum.word:
             self._lastFoundCount = len(result['entries'])
@@ -104,6 +116,7 @@ class Search(QObject):
                 thumbURL = result['thumbnail']
                 self.pool.appendTask(((thumbURL, videoID), SearchTypesEnum.thumb), self.thumbsHandler)
 
+            self.isRead = False
             self.baseCallback(self.word, result)
 
     def thumbsHandler(self, result):

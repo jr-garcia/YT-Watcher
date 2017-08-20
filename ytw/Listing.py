@@ -5,9 +5,9 @@ import locale
 from os import path
 import webbrowser
 
-from ._paths import nuovolaPath
+from ._paths import iconPath, nuovolaPath
 
-MAXDESCRIPTIONLEN = 150
+MAXDESCRIPTIONLEN = 400
 THUMBSIZE = 200
 
 
@@ -28,8 +28,8 @@ class VideoItem(QFrame):
         # self.layoutThumb = lt
         lm.addLayout(lt)
         lm.addWidget(self.widgetData)
-        # lm.addLayout(ld)
-        lm.addStretch()
+
+        # lm.addStretch()
 
         imageThumb = Thumbnail(videoData, thumbPix)
         self.thumb = imageThumb
@@ -333,6 +333,8 @@ class PreviewWidget(QWidget):
 
         tabWidget = QTabWidget()
         tabWidget.setObjectName('tabWidget')
+        myTabBar = MyTabBar(tabWidget, )
+        tabWidget.setTabBar(myTabBar)
         self.tabWidget = tabWidget
         self.addEmptyTab()
         tabWidget.setMovable(True)
@@ -346,8 +348,11 @@ class PreviewWidget(QWidget):
 
         layoutBottom = QHBoxLayout()
         buttonClear = QPushButton('Clear results')
-        buttonClear.clicked.connect(lambda: self.tabWidget.widget(self.tabWidget.currentIndex()).clear())
+        buttonClear.clicked.connect(self.clearList)
+        self.buttonClear = buttonClear
         buttonMarkRead = QPushButton('Mark as read')
+        buttonMarkRead.clicked.connect(self.markAsRead)
+        self.buttonMarkRead = buttonMarkRead
         layoutBottom.addWidget(buttonMarkRead)
         layoutBottom.addStretch()
         layoutBottom.addWidget(buttonClear)
@@ -360,6 +365,17 @@ class PreviewWidget(QWidget):
         self._isEmmitingCheckChanged = False
         self._onInitialPlacement = False
         self._isChangingVieModeFromButton = False
+
+    def markAsRead(self):
+        listPreviews = self.tabWidget.widget(self.tabWidget.currentIndex())
+        search = listPreviews.search
+        search.isRead = True
+        self.buttonMarkRead.setEnabled(False)
+
+    def clearList(self):
+        self.markAsRead()
+        self.tabWidget.widget(self.tabWidget.currentIndex()).clear()
+        self.buttonClear.setEnabled(False)
 
     def clear(self):
         while self.tabWidget.count() > 0:
@@ -396,6 +412,10 @@ class PreviewWidget(QWidget):
     def _currentChanged(self, index):
         word = self.tabWidget.tabText(index)
         if word != '':
+            listPreviews = self.tabWidget.widget(index)
+            search = listPreviews.search
+            self.buttonMarkRead.setEnabled(not search.isRead)
+            self.buttonClear.setEnabled(listPreviews.count())
             self.tabChanged.emit(word)
 
     def updateSearchesIndexes(self):
@@ -471,11 +491,13 @@ class PreviewWidget(QWidget):
 
     def updateSearch(self, word, data, thumbPix):
         index = self.findTabIndexByWord(word)
+        if index is None:
+            raise IndexError(word)
+        if index == self.tabWidget.currentIndex():
+            self.buttonMarkRead.setEnabled(True)
+            self.buttonClear.setEnabled(True)
         listPreviews = self.tabWidget.widget(index)
         item = QListWidgetItem('')
-        # item.setText(data['title'])
-        # icon = QIcon(thumbPix.scaled(QSize(THUMBSIZE, THUMBSIZE), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        # item.setIcon(icon)
         item.setSizeHint(QSize(200, 200))
 
         newVideoItem = VideoItem(data, self, thumbPix)
@@ -494,3 +516,32 @@ class PreviewWidget(QWidget):
     def openVideoInBrowser(self, item):
         view = item.listWidget().itemWidget(item)
         webbrowser.open(view.videoData['webpage_url'])
+
+
+class MyTabBar(QTabBar):
+    def __init__(self, *args, **kwargs):
+        self.pixmap = QPixmap(path.join(iconPath, 'WAIS', 'if_Warning_10596.png')).scaled(
+            QSize(16, 16), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        super(MyTabBar, self).__init__(*args, **kwargs)
+
+    def paintEvent(self, *args, **kwargs):
+        super(MyTabBar, self).paintEvent(*args, **kwargs)
+
+        painter = QPainter()
+        painter.begin(self)
+
+        selfRect = self.rect()
+        tabWidget = self.parentWidget()
+
+        for index in range(self.count()):
+            listPreviews = tabWidget.widget(index)
+            search = listPreviews.search
+            if search.isRead:
+                continue
+            oldrect = self.tabRect(index)
+            point = selfRect.topLeft() + oldrect.center()
+            point.setY(-1)
+            painter.drawPixmap(point, self.pixmap)
+
+        painter.end()
+

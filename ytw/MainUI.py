@@ -27,6 +27,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super(MainWindow, self).__init__()
+        self.closedPerformed = False
         self.createFolderIfAbscent(CACHESPATH)
         self.createFolderIfAbscent(OPTIONSPATH)
 
@@ -163,6 +164,10 @@ class MainWindow(QMainWindow):
                                    QMessageBox.Yes, QMessageBox.No)
         if res == QMessageBox.No:
             return
+        fileName = '_' + word + CACHEFILEEXT
+        filePath = path.join(searchesPath, fileName)
+        if path.exists(filePath):
+            remove(filePath)
         search = self.searches.pop(word)
         self.previewsWidget.remove(search)
 
@@ -174,7 +179,6 @@ class MainWindow(QMainWindow):
 
         search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady, word, None, status)
 
-        search.callback = self.searchReady
         self.searches[word] = search
 
         if search.status == SearchStatesEnum.readyToSearch:
@@ -198,6 +202,8 @@ class MainWindow(QMainWindow):
         else:
             thumbPix = None
 
+        if word not in self.searches.keys():
+            return 
         newVideoItem = self.previewsWidget.updateSearch(word, result, thumbPix)
         self.newThumbReady.connect(newVideoItem.thumbArrived)
 
@@ -216,6 +222,9 @@ class MainWindow(QMainWindow):
         self.newSearchCallback(search, True)
 
     def closeEvent(self, *args, **kwargs):
+        if self.closedPerformed:
+            return
+        self.closedPerformed = True
         self.previewsWidget.clear()
 
         self.dumpSearches()
@@ -350,5 +359,8 @@ def _pickleableCheck(dummy):
 def _runMainWindow():
     app = QApplication('')
     setApp(app)
-    mainWin = MainWindow()
+    try:
+        mainWin = MainWindow()
+    except:
+        mainWin.close()
     sys.exit(app.exec_())
