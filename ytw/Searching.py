@@ -41,6 +41,8 @@ class Search(QObject):
 
         self.resultsQueue = []
 
+        self.mode = QListView.ListMode
+
         self.pool = Pool(4)
         self.pool.start()
         self._isSearching = False
@@ -50,11 +52,12 @@ class Search(QObject):
 
     @property
     def seconds(self):
-        return self._miliseconds / 1000
+        return int(self._miliseconds / 1000)
 
     @seconds.setter
     def seconds(self, value):
         self._miliseconds = value * 1000
+        self.resetTimer()
 
     def __repr__(self):
         return '\'{}\' , {} exclusions, {}'.format(self.word, len(self.excludeds), self.status)
@@ -86,7 +89,7 @@ class Search(QObject):
                 videoID = video['id']
                 if videoID in self.results:
                     continue
-                if videoID not in self.videosCache.keys(): # _GyCEgnFfaNo
+                if videoID not in self.videosCache.keys():
                     self.pool.appendTask((video['url'], SearchTypesEnum.video), self._resultsCallback)
                 else:
                     cachedVideoResult = self.videosCache[videoID]
@@ -116,6 +119,10 @@ class Search(QObject):
         self._isFirstRun = False
         self.status = SearchStatesEnum.readyToSearch
         self.timer.start(miliseconds)
+
+    def resetTimer(self):
+        self.timer.stop()
+        self.timer.start(self._miliseconds)
 
     def forceSearchNow(self):
         self.setReady(True)
@@ -267,7 +274,7 @@ class SearchPropertiesWidget(QWidget):
         lowTex = self.comboEveryUnit.currentText().lower()
         if lowTex == 'minutes':
             amount *= 60
-        if lowTex == 'hours':
+        elif lowTex == 'hours':
             amount *= 60 * 60
 
         return amount

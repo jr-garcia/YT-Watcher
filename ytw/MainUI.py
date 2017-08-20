@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
         self.iconSearching = QIcon(emptyPM)
         self.iconPaused = QIcon(path.join(brightPath, 'pause.png'))
         self.iconReady = QIcon(path.join(brightPath, 'clock.png'))
-        self.iconSearch = QIcon(path.join(brightPath, 'ifind.png'))
+        self.iconSearch = QIcon(path.join(iconPath, 'search_tools.png'))
         self.iconAdd = QIcon(path.join(brightPath, 'plus_green.png'))
         self.iconTools = QIcon(path.join(brightPath, 'tools.png'))
         self.movieSearch.updated.connect(self.updateLoadingIcon)
@@ -135,8 +135,8 @@ class MainWindow(QMainWindow):
         dockSearchProperties.visibilityChanged.connect(self.searchPropertiesBoxVsibilityChanged)
         dockSearchProperties.setEnabled(False)
         dockSearchProperties.setWidget(self.searchBox)
-        dockSearchProperties.resize(dockSearchProperties.size())
-        dockSearchProperties.resize(100, dockSearchProperties.size().height())
+        # dockSearchProperties.resize(dockSearchProperties.size())
+        # dockSearchProperties.resize(100, dockSearchProperties.size().height())
         dockSearchProperties.setWindowTitle('Search Properties')
         self.dockSearchProperties = dockSearchProperties
         self.addDockWidget(Qt.LeftDockWidgetArea, dockSearchProperties)
@@ -305,7 +305,6 @@ class MainWindow(QMainWindow):
                     search._unit = searchInitDict['unit']
                     if status == SearchStatesEnum.readyToSearch:
                         search.forceSearchNow()
-
 
     def loadThumbsCache(self):
         self.createFolderIfAbscent(cachedThumbsPath)
