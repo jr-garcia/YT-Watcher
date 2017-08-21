@@ -172,8 +172,8 @@ class MainWindow(QMainWindow):
         self.previewsWidget.remove(search)
         search.terminate()
 
-    def createNewSearch(self, word, fromInit=False):
-        if fromInit:
+    def createNewSearch(self, word, isPaused=False):
+        if isPaused:
             status = SearchStatesEnum.paused
         else:
             status = SearchStatesEnum.readyToSearch
@@ -308,13 +308,15 @@ class MainWindow(QMainWindow):
                     fileList.pop(lastChecked)
                     lastIndex += 1
                     lastChecked = 0
-                    search = self.createNewSearch(word, True)
-                    search.seconds = searchInitDict['seconds']
                     status = searchInitDict['status']
+                    if status == SearchStatesEnum.paused:
+                        isPaused = True
+                    else:
+                        isPaused = False
+                    search = self.createNewSearch(word, isPaused)
+                    search.seconds = searchInitDict['seconds']
                     search.excludeds = searchInitDict['excludeds']
                     search._unit = searchInitDict['unit']
-                    if status == SearchStatesEnum.readyToSearch:
-                        search.forceSearchNow()
 
     def loadThumbsCache(self):
         self.createFolderIfAbscent(cachedThumbsPath)

@@ -270,14 +270,14 @@ class SearchPropertiesWidget(QWidget):
         self.comboEveryUnit.currentIndexChanged.connect(self.updateTimeChanged)
         glay.addRow(QLabel('Update every'), layoutEvery)
 
-        self.radioStarted = QRadioButton('Running')  # todo: implement state change on radio change
+        groupState = QGroupBox('State')
+        self.radioStarted = QRadioButton('Running', groupState)  # todo: check state change on radio change
         self.radioStarted.setChecked(True)
-        self.radioPaused = QRadioButton('Paused')
+        self.radioPaused = QRadioButton('Paused', groupState)
         self.radioPaused.toggled.connect(self.searchStatusChanged)
         layoutStates = QVBoxLayout()
         layoutStates.addWidget(self.radioStarted)
         layoutStates.addWidget(self.radioPaused)
-        groupState = QGroupBox('State')
         groupState.setLayout(layoutStates)
 
         glay.addRow(groupState)
@@ -300,8 +300,11 @@ class SearchPropertiesWidget(QWidget):
 
         self.searchWordEdit.setText(search.word)
 
-        self.radioStarted.setChecked(True if search.status != SearchStatesEnum.paused else False)
-        self.radioPaused.setChecked(not self.radioStarted.isChecked())
+        if search.status == SearchStatesEnum.readyToSearch:
+            self.radioStarted.setChecked(True)
+        else:
+            self.radioPaused.setChecked(True)
+            
         self.excludedEdit.setPlainText('\n'.join(search.excludeds))
         self.searchWordEdit.setEnabled(False)
 
@@ -321,7 +324,7 @@ class SearchPropertiesWidget(QWidget):
 
         self._onRefresh = False
 
-    def searchStatusChanged(self, event):
+    def searchStatusChanged(self):
         if self._onRefresh:
             return
         if self.radioPaused.isChecked():
@@ -336,7 +339,7 @@ class SearchPropertiesWidget(QWidget):
         else:
             self.search.excludeds = []
 
-    def updateTimeChanged(self, event):
+    def updateTimeChanged(self):
         self.search.seconds = self.getRefreshTime()
         self.search._unit = self.comboEveryUnit.currentText().lower()
 
