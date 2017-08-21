@@ -5,7 +5,7 @@ import locale
 from os import path
 import webbrowser
 
-from ._paths import iconPath, nuovolaPath
+from ._paths import *
 
 MAXDESCRIPTIONLEN = 400
 THUMBSIZE = 200
@@ -23,13 +23,9 @@ class VideoItem(QFrame):
 
         self.widgetData = QWidget()
         self.widgetData.setLayout(ld)
-        # self.layoutMain = lm
-        # self.layoutData = ld
-        # self.layoutThumb = lt
+
         lm.addLayout(lt)
         lm.addWidget(self.widgetData)
-
-        # lm.addStretch()
 
         imageThumb = Thumbnail(videoData, thumbPix)
         self.thumb = imageThumb
@@ -91,19 +87,14 @@ class VideoItem(QFrame):
         labelUploader.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
         labelUploader.setOpenExternalLinks(True)
         labelUploader.setText("<a href=\"{}\">{}</a>".format(videoData['uploader_url'], videoData['uploader']))
-        # font = labelUploader.font()
-        # font.setUnderline(True)
-        # labelUploader.setFont(font)
+
         ld.addWidget(labelUploader)
         desc = videoData['description']
         if len(desc) > MAXDESCRIPTIONLEN:
             desc = desc[:MAXDESCRIPTIONLEN] + '...'
         labelDesc = QLabel(desc)
         labelDesc.setWordWrap(True)
-        # labelDesc.resize(labelDesc.sizeHint())
-        # labelDesc.setMinimumWidth(100)
-        # labelDesc.setMinimumHeight(50)
-        # labelDesc.resize(2000, 100)
+
         labelDesc.setStyleSheet("QLabel {color : gray; }")
         labelDesc.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
@@ -327,10 +318,6 @@ class PreviewWidget(QWidget):
         self.actionViewModesMenu = actionViewModesMenu
         toolbarSearches.addAction(actionViewModesMenu)
 
-        # actionViewModesMenu = toolbarSearches.addAction('View modes')
-        # actionViewModesMenu.triggered.connect(self.switchViewMode)
-        # actionViewModesMenu.setMenu(menuViewModes)
-
         tabWidget = QTabWidget()
         tabWidget.setObjectName('tabWidget')
         myTabBar = MyTabBar(tabWidget, )
@@ -347,10 +334,10 @@ class PreviewWidget(QWidget):
         layoutMain.addWidget(self.tabWidget)
 
         layoutBottom = QHBoxLayout()
-        buttonClear = QPushButton('Clear results')
+        buttonClear = QPushButton(QIcon(path.join(discoveryPath, 'clear.png')), 'Clear results')
         buttonClear.clicked.connect(self.clearList)
         self.buttonClear = buttonClear
-        buttonMarkRead = QPushButton('Mark as read')
+        buttonMarkRead = QPushButton(QIcon(path.join(faiPath, 'Apply_modified.png')), 'Mark as read')
         buttonMarkRead.clicked.connect(self.markAsRead)
         self.buttonMarkRead = buttonMarkRead
         layoutBottom.addWidget(buttonMarkRead)
@@ -491,8 +478,7 @@ class PreviewWidget(QWidget):
 
     def updateSearch(self, word, data, thumbPix):
         index = self.findTabIndexByWord(word)
-        if index is None:
-            raise IndexError(word)
+
         if index == self.tabWidget.currentIndex():
             self.buttonMarkRead.setEnabled(True)
             self.buttonClear.setEnabled(True)
@@ -520,7 +506,7 @@ class PreviewWidget(QWidget):
 
 class MyTabBar(QTabBar):
     def __init__(self, *args, **kwargs):
-        self.pixmap = QPixmap(path.join(iconPath, 'WAIS', 'if_Warning_10596.png')).scaled(
+        self.pixmap = QPixmap(path.join(iconPath, 'WAIS', 'Warning.png')).scaled(
             QSize(16, 16), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         super(MyTabBar, self).__init__(*args, **kwargs)
 

@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
         self.iconSearching = QIcon(emptyPM)
         self.iconPaused = QIcon(path.join(brightPath, 'pause.png'))
         self.iconReady = QIcon(path.join(brightPath, 'clock.png'))
-        self.iconSearch = QIcon(path.join(iconPath, 'search_tools.png'))
+        self.iconSearch = QIcon(path.join(brightPath, 'edit.png'))
         self.iconAdd = QIcon(path.join(brightPath, 'plus_green.png'))
         self.iconTools = QIcon(path.join(brightPath, 'tools.png'))
         self.movieSearch.updated.connect(self.updateLoadingIcon)
