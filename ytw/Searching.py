@@ -16,7 +16,7 @@ class SearchStatesEnum(object):
 class Search(QObject):
     notRead = Signal()
 
-    def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, word='', excludeds=None,
+    def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, pool, word='', excludeds=None,
                  status=SearchStatesEnum.readyToSearch):
         super(Search, self).__init__()
         self.thumbsCallback = thumbsCallback
@@ -44,9 +44,11 @@ class Search(QObject):
         self.resultsQueue = []
 
         self.mode = QListView.ListMode
+        self._order = 1
+        self.maxResults = 50
 
-        self.pool = Pool(4)
-        self.pool.start()
+        self.pool = pool
+
         self._isSearching = False
         self._isRead = True
 
@@ -136,6 +138,18 @@ class Search(QObject):
     def resetTimer(self):
         self.timer.stop()
         self.timer.start(self._miliseconds)
+
+    @property
+    def order(self):
+        return self._order
+
+    @order.setter
+    def order(self, value):
+        self._order = value
+
+    def updateSorting(self):
+        self.pool.appendTask(((self._order, self.maxResults), SearchTypesEnum.key), self._resultsCallback)
+        self.forceSearchNow()
 
     def forceSearchNow(self):
         self._performSearch()
@@ -236,6 +250,8 @@ class Pool(QObject):
 
 
 class SearchPropertiesWidget(QWidget):
+    searchSortingChanged = Signal()
+
     def __init__(self, parent):
         super(SearchPropertiesWidget, self).__init__(parent)
 
@@ -244,16 +260,16 @@ class SearchPropertiesWidget(QWidget):
         self.setLayout(mainlay)
         self._canceled = False
 
-        glay = QFormLayout()
-        mainlay.addLayout(glay)
+        layoutForm = QFormLayout()
+        mainlay.addLayout(layoutForm)
 
         self.searchWordEdit = QLineEdit()
         self.searchWordEdit.setEnabled(False)
         self.excludedEdit = QPlainTextEdit()
 
         self.excludedEdit.textChanged.connect(self.excludedsChanged)
-        glay.addRow(QLabel('Word'), self.searchWordEdit)
-        glay.addRow(QLabel('Exclude terms\n(one per line)'), self.excludedEdit)
+        layoutForm.addRow(QLabel('Word'), self.searchWordEdit)
+        layoutForm.addRow(QLabel('Exclude terms\n(one per line)'), self.excludedEdit)
 
         layoutEvery = QHBoxLayout()
         self.spinboxRefreshTime = QSpinBox()
@@ -263,12 +279,25 @@ class SearchPropertiesWidget(QWidget):
         comboEveryUnit.setCurrentIndex(1)
         comboEveryUnit.setEditable(False)
         self.comboEveryUnit = comboEveryUnit
-
         layoutEvery.addWidget(self.spinboxRefreshTime)
         layoutEvery.addWidget(self.comboEveryUnit)
         self.spinboxRefreshTime.valueChanged.connect(self.updateTimeChanged)
         self.comboEveryUnit.currentIndexChanged.connect(self.updateTimeChanged)
-        glay.addRow(QLabel('Update every'), layoutEvery)
+        layoutForm.addRow(QLabel('Update every'), layoutEvery)
+
+        comboOrder = QComboBox()
+        comboOrder.addItems(['Relevance', 'Date'])
+        comboOrder.setCurrentIndex(1)
+        comboOrder.setEditable(False)
+        comboOrder.currentIndexChanged.connect(self.changedSorting)
+        self.comboOrder = comboOrder
+        layoutForm.addRow(QLabel('Sort by'), comboOrder)
+
+        spinboxMaxResults = QSpinBox()
+        spinboxMaxResults.setValue(50)
+        spinboxMaxResults.valueChanged.connect(self.changedSorting)
+        layoutForm.addRow(QLabel('Max results'), spinboxMaxResults)
+        self.spinboxMaxResults = spinboxMaxResults
 
         groupState = QGroupBox('State')
         self.radioStarted = QRadioButton('Running', groupState)  # todo: check state change on radio change
@@ -280,8 +309,17 @@ class SearchPropertiesWidget(QWidget):
         layoutStates.addWidget(self.radioPaused)
         groupState.setLayout(layoutStates)
 
-        glay.addRow(groupState)
+        layoutForm.addRow(groupState)
         self._onRefresh = False
+
+    def changedSorting(self, index):
+        order = 'ytsearch{}' + str(self.spinboxMaxResults.value())
+        if index == 0:
+            order = order.format('')
+        else:
+            order = order.format('date')
+        self.searchSortingChanged.emit()
+        self.search.updateSorting()
 
     def getRefreshTime(self):
         amount = self.spinboxRefreshTime.value()

@@ -71,6 +71,8 @@ class MainWindow(QMainWindow):
         # self.timerConection.timeout.connect(self.checkConnection)
         # self.timerConection.start(5000)
 
+        self.mainPool = Pool(6)
+        self.mainPool.start()
         self.show()
         self.loadWindowsPlaces()
         self.loadSearches()
@@ -131,6 +133,7 @@ class MainWindow(QMainWindow):
         self.setLayout(self.layoutMain)
 
         self.searchBox = SearchPropertiesWidget(self)
+        self.searchBox.searchSortingChanged.connect(self.updateSorting)
         dockSearchProperties = QDockWidget()
         dockSearchProperties.setObjectName('dockSearchProperties')
         dockSearchProperties.visibilityChanged.connect(self.searchPropertiesBoxVsibilityChanged)
@@ -141,6 +144,9 @@ class MainWindow(QMainWindow):
         dockSearchProperties.setWindowTitle('Search Properties')
         self.dockSearchProperties = dockSearchProperties
         self.addDockWidget(Qt.LeftDockWidgetArea, dockSearchProperties)
+
+    def updateSorting(self):
+        self.previewsWidget.clearList()
 
     def searchIndexChanged(self, word, index):
         self.searches[word].index = index
@@ -178,7 +184,7 @@ class MainWindow(QMainWindow):
         else:
             status = SearchStatesEnum.readyToSearch
 
-        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady, word, None, status)
+        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady, self.mainPool, word, None, status)
 
         self.searches[word] = search
 
@@ -362,8 +368,5 @@ def _pickleableCheck(dummy):
 def _runMainWindow():
     app = QApplication('')
     setApp(app)
-    try:
-        mainWin = MainWindow()
-    except:
-        mainWin.close()
+    mainWin = MainWindow()
     sys.exit(app.exec_())
