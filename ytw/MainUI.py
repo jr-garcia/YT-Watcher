@@ -184,7 +184,8 @@ class MainWindow(QMainWindow):
         else:
             status = SearchStatesEnum.readyToSearch
 
-        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady, self.mainPool, word, None, status)
+        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady,
+                        self.mainPool, word, None, status)
 
         self.searches[word] = search
 
@@ -290,7 +291,7 @@ class MainWindow(QMainWindow):
                 remove(filePath)
             with open(filePath, 'w') as file:
                 searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s._unit,
-                                  'index'  : s.index}
+                                  'index'  : s.index, 'order': s.order, 'max': s.maxResults}
                 dump(searchInitDict, file, indent=4)
 
     def loadSearches(self):
@@ -319,10 +320,14 @@ class MainWindow(QMainWindow):
                         isPaused = True
                     else:
                         isPaused = False
-                    search = self.createNewSearch(word, isPaused)
+                    search = self.createNewSearch(word, True)
                     search.seconds = searchInitDict['seconds']
                     search.excludeds = searchInitDict['excludeds']
                     search._unit = searchInitDict['unit']
+                    search.maxResults = searchInitDict['max']
+                    search.order = searchInitDict['order']
+                    if not isPaused:
+                        search.forceSearchNow()
 
     def loadThumbsCache(self):
         self.createFolderIfAbscent(cachedThumbsPath)

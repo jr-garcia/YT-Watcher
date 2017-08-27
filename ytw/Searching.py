@@ -45,12 +45,23 @@ class Search(QObject):
 
         self.mode = QListView.ListMode
         self._order = 1
-        self.maxResults = 50
+        self._maxResults = 50
 
         self.pool = pool
 
         self._isSearching = False
         self._isRead = True
+
+        self.task = PoolableTask(self._order, self._maxResults)
+
+    @property
+    def maxResults(self):
+        return self._maxResults
+
+    @maxResults.setter
+    def maxResults(self, value):
+        self._maxResults = value
+        self.task.maxResults = value
 
     @property
     def isRead(self):
@@ -77,10 +88,9 @@ class Search(QObject):
 
     def _performSearch(self):
         self._setSearching()
-        self.pool.appendTask((self.word, SearchTypesEnum.word), self._resultsCallback)
+        self.pool.appendTask(self.task(self.word, SearchTypesEnum.word), self._resultsCallback)
 
     def _resultsCallback(self, returnValue):
-
         if not isinstance(returnValue, tuple):
             if issubclass(type(returnValue), YoutubeDLError):
                 self.status = SearchStatesEnum.error
@@ -104,7 +114,7 @@ class Search(QObject):
                 if videoID in self.results:
                     continue
                 if videoID not in self.videosCache.keys():
-                    self.pool.appendTask((video['url'], SearchTypesEnum.video), self._resultsCallback)
+                    self.pool.appendTask(self.task(video['url'], SearchTypesEnum.video), self._resultsCallback)
                 else:
                     cachedVideoResult = self.videosCache[videoID]
                     self._resultsCallback((cachedVideoResult, SearchTypesEnum.video))
@@ -116,7 +126,7 @@ class Search(QObject):
             self.results.append(videoID)
             if videoID not in self.thumbsCache.keys():
                 thumbURL = result['thumbnail']
-                self.pool.appendTask(((thumbURL, videoID), SearchTypesEnum.thumb), self.thumbsHandler)
+                self.pool.appendTask((self.task(thumbURL, videoID), SearchTypesEnum.thumb), self.thumbsHandler)
 
             self.isRead = False
             self.baseCallback(self.word, result)
@@ -146,10 +156,7 @@ class Search(QObject):
     @order.setter
     def order(self, value):
         self._order = value
-
-    def updateSorting(self):
-        self.pool.appendTask(((self._order, self.maxResults), SearchTypesEnum.key), self._resultsCallback)
-        self.forceSearchNow()
+        self.task.sorting = value
 
     def forceSearchNow(self):
         self._performSearch()
@@ -164,6 +171,27 @@ class Search(QObject):
 
     def _externalPause(self, state):
         self.queue.put_nowait(state)
+
+
+class PoolableTask(object):
+    def __init__(self, sorting, maxResults):
+        self.sorting = sorting
+        self.maxResults = maxResults
+        self.task = None
+        self.searchType= None
+
+    def __call__(self, task, searchType):
+        self.task = task
+        self.searchType = searchType
+        return self
+
+    def __getitem__(self, item):
+        if item == 0:
+            return self.task
+        elif item == 1:
+            return self.searchType
+        else:
+            raise IndexError('wrong index for task')
 
 
 class Pool(QObject):
@@ -196,8 +224,11 @@ class Pool(QObject):
     def stop(self):
         self.timer.stop()
 
-    def appendTask(self, data, callback):
-        self.tasks.append((data, callback))
+    def appendTask(self, task, callback):
+        if not isinstance(task, PoolableTask):
+            raise TypeError('task to send must be of type \'PoolableTask\' not \'{}\''.format(type(task)))
+
+        self.tasks.append((task, callback))
 
     def update(self):
         while len(self._available) > 0:
@@ -207,16 +238,15 @@ class Pool(QObject):
                 sid = self._available[0]
                 try:
                     task, callback = self.tasks[0]
-                    self.callbacks[sid] = callback
-                    self._busy[sid] = sid
                     local = self.locals.get(sid)
                     local.put(task, timeout=1)
-                    self._available.pop(0)
                     self.tasks.pop(0)
+                    if callback is not None:
+                        self.callbacks[sid] = callback
+                        self._busy[sid] = sid
+                        self._available.pop(0)
                 except Full:
                     pass
-                    # self._busy.pop(sid)
-                    # self._available.append(sid)
                 except AssertionError:
                     self.terminate()
                 except OSError:
@@ -285,6 +315,7 @@ class SearchPropertiesWidget(QWidget):
         self.comboEveryUnit.currentIndexChanged.connect(self.updateTimeChanged)
         layoutForm.addRow(QLabel('Update every'), layoutEvery)
 
+        self._internalReordering = False
         comboOrder = QComboBox()
         comboOrder.addItems(['Relevance', 'Date'])
         comboOrder.setCurrentIndex(1)
@@ -312,14 +343,15 @@ class SearchPropertiesWidget(QWidget):
         layoutForm.addRow(groupState)
         self._onRefresh = False
 
-    def changedSorting(self, index):
-        order = 'ytsearch{}' + str(self.spinboxMaxResults.value())
-        if index == 0:
-            order = order.format('')
-        else:
-            order = order.format('date')
+    def changedSorting(self):
+        if self._internalReordering:
+            return
+
+        self.search.order = self.comboOrder.currentIndex()
+        self.search.maxResults = self.spinboxMaxResults.value()
         self.searchSortingChanged.emit()
-        self.search.updateSorting()
+        if self.search.status != SearchStatesEnum.paused:
+            self.search.forceSearchNow()
 
     def getRefreshTime(self):
         amount = self.spinboxRefreshTime.value()
@@ -334,7 +366,6 @@ class SearchPropertiesWidget(QWidget):
     def refresh(self, search):
         self._onRefresh = True
         self.search = search
-        self.setWindowTitle('Search properties')
 
         self.searchWordEdit.setText(search.word)
 
@@ -359,6 +390,11 @@ class SearchPropertiesWidget(QWidget):
 
         self.comboEveryUnit.setCurrentIndex(index)
         self.spinboxRefreshTime.setValue(seconds)
+
+        self._internalReordering = True
+        self.comboOrder.setCurrentIndex(search.order)
+        self._internalReordering = False
+        self.spinboxMaxResults.setValue(search.maxResults)
 
         self._onRefresh = False
 

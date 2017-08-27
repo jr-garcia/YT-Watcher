@@ -10,6 +10,8 @@ from os import path
 
 from ._paths import cachedThumbsPath
 
+SORTINGDICT = {0: 'Date', 1: ''}
+
 MAXRETRIES = 5
 
 
@@ -18,6 +20,7 @@ class SearchTypesEnum(object):
     video = 'video'
     thumb = 'thumb'
     error = 'error'
+    key = 'key'
 
 
 class DownloaderError(Exception):
@@ -30,6 +33,8 @@ class Searcher(Process):
 
         super(Searcher, self).__init__()
 
+        self.searchOrder = 'Date'
+        self.searchMax = 50
         self.local = Queue()
         self.local.cancel_join_thread()
         self.remote = None
@@ -39,11 +44,19 @@ class Searcher(Process):
         self._isRunning = True
         self.externalPause = False
 
-        ytOptions = {'logger': MyLogger(), 'progress_hooks': [my_hook], 'default_search': 'ytsearch7'}
-
-        self.downloader = YoutubeDL(ytOptions)
-        self.searchExtractor = self.downloader.get_info_extractor('YoutubeSearch')
+        self.downloader = self.createDownloader()
+        self.searchExtractor = self.createSearcher()
         self.resultsExtractor = self.downloader.get_info_extractor('Youtube')
+
+    def createDownloader(self):
+        sorting = 'ytsearch'
+        if self.searchOrder == 'Date':
+            sorting += 'date'
+        ytOptions = {'logger': MyLogger(), 'progress_hooks': [my_hook], 'default_search': sorting + str(self.searchMax)}
+        return YoutubeDL(ytOptions)
+
+    def createSearcher(self):
+        return self.downloader.get_info_extractor('YoutubeSearch' + self.searchOrder)
 
     def prepareConnections(self, remote):
         self.remote = remote
@@ -76,8 +89,11 @@ class Searcher(Process):
                 binaryThumb = download(thumbURL)
                 thumbExt = path.splitext(path.basename(thumbURL))[1]
                 thumbPath = path.join(cachedThumbsPath, '_' + videoID + '_thumb' + thumbExt)
-                with open(thumbPath, 'xb') as thumbFile:
-                    thumbFile.write(binaryThumb)
+                try:
+                    with open(thumbPath, 'xb') as thumbFile:
+                        thumbFile.write(binaryThumb)
+                except FileExistsError:
+                    pass
 
                 return videoID, thumbPath
 
@@ -116,6 +132,12 @@ class Searcher(Process):
                 else:
                     if self.externalPause:
                         continue
+
+                    self.searchOrder = SORTINGDICT[data.sorting]
+                    self.searchMax = data.maxResults
+                    self.downloader = self.createDownloader()
+                    self.searchExtractor = self.createSearcher()
+
                     query, searchType = data
                     try:
                         result = self._doSearch(query, searchType)
@@ -124,7 +146,7 @@ class Searcher(Process):
                     except YoutubeDLError as error:
                         retries += 1
                         if retries == MAXRETRIES:
-                            self.local.put((DownloaderError(error), searchType))
+                            self.local.put((DownloaderError(error), SearchTypesEnum.error))
                         else:
                             sleep(1)
 
@@ -149,9 +171,9 @@ class MyLogger(object):
         pass
 
     def warning(self, msg):
-        if 'unable to extract' in msg:
-            raise ExtractorError(msg)         
         print('Downloader warning: ' + msg)
+        if 'unable to' in msg:
+            raise ExtractorError(msg)
 
     def error(self, msg):
         print('Downloader error: ' + msg)
