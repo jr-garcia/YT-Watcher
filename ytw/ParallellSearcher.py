@@ -1,30 +1,38 @@
 from multiprocessing import Process, Queue
+from traceback import format_exc
 from queue import Empty, Full
 from time import time, sleep
+from os import path
+from urllib.error import *
+
 from .youtube_dl.YoutubeDL import YoutubeDL, ExtractorError
 from .youtube_dl.utils import *
 
 from .Downloading import download
-
-from os import path
-
 from ._paths import cachedThumbsPath
 
-SORTINGDICT = {0: 'Date', 1: ''}
+SORTINGDICT = {0: '', 1: 'Date'}
+MAXRETRIES = 3
 
-MAXRETRIES = 5
+
+class ErrorTypesEnum(object):
+    NoUser = 'NonValidData'
+    PageNonAccesible = 'PageNonAccesible'
+    Other = 'Other'
 
 
-class SearchTypesEnum(object):
+class TaskTypesEnum(object):
     word = 'word'
     video = 'video'
     thumb = 'thumb'
+    data = 'data'
     error = 'error'
-    key = 'key'
 
 
-class DownloaderError(Exception):
-    def __init__(self, msg):
+class NoUserError(BaseException):
+    def __init__(self, msg, searchType, what):
+        self.searchType = searchType
+        self.what = what
         self.msg = str(msg)
 
 
@@ -62,9 +70,9 @@ class Searcher(Process):
         self.remote = remote
         return self.local
 
-    def _doSearch(self, what, searchType):
+    def search(self, what, searchType):
         try:
-            if searchType == SearchTypesEnum.word:
+            if searchType == TaskTypesEnum.word:
                 ydl = self.downloader
                 query = ydl.get_info_extractor('Generic').extract(what)
                 url = query['url']
@@ -72,19 +80,17 @@ class Searcher(Process):
                 result = searchExtractor.extract(url)
                 ydl.add_default_extra_info(result, searchExtractor, url)
                 return result
-            elif searchType == SearchTypesEnum.video:
+            elif searchType == TaskTypesEnum.video:
                 resultsExtractor = self.resultsExtractor
                 videoInfo = resultsExtractor.extract(what)
-                if not self.hasValidData(videoInfo):
-                    videoInfo = resultsExtractor.extract(what)
-                    if not self.hasValidData(videoInfo):
-                        raise YoutubeDLError('Null uploader or like_count')
+                if not self.hasEssentialData(videoInfo):
+                    raise NoUserError('Null uploader', searchType, what)
                 if videoInfo['like_count'] is None:
                     videoInfo['like_count'] = 0
                 if videoInfo['dislike_count'] is None:
                     videoInfo['dislike_count'] = 0
                 return videoInfo
-            else:
+            elif searchType == TaskTypesEnum.thumb:
                 thumbURL, videoID = what
                 binaryThumb = download(thumbURL)
                 thumbExt = path.splitext(path.basename(thumbURL))[1]
@@ -94,17 +100,21 @@ class Searcher(Process):
                         thumbFile.write(binaryThumb)
                 except FileExistsError:
                     pass
-
                 return videoID, thumbPath
+            else:  # searchType == TaskTypesEnum.data:
+                binaryData = download(what)
+                return binaryData
+        except Exception:
+            remoteRaise(self.local)
 
-        except Exception as error:
-            raise error
-
-    def hasValidData(self, videoInfo):
-        if videoInfo['uploader'] is None:
-            return False
-        else:
-            return True
+    def hasEssentialData(self, videoInfo):
+        try:
+            if None in (videoInfo['uploader'], videoInfo['uploader_url'], videoInfo['upload_date']):
+                return False
+            else:
+                return True
+        except KeyError:
+            remoteRaise(self.local)
 
     def run(self):
         data = None
@@ -140,18 +150,29 @@ class Searcher(Process):
 
                     query, searchType = data
                     try:
-                        result = self._doSearch(query, searchType)
+                        result = self.search(query, searchType)
                         data = None
-                        self.local.put((result, searchType))
-                    except YoutubeDLError as error:
+                        if result is not None:
+                            self.local.put(TaskResult(result, searchType))
+                    except (NoUserError, YoutubeDLError):
                         retries += 1
                         if retries == MAXRETRIES:
-                            self.local.put((DownloaderError(error), SearchTypesEnum.error))
+                            remoteRaise(self.local)
                         else:
                             sleep(1)
+                    except:
+                        remoteRaise(self.local)
+                        self.terminate()
+                        raise
 
             except:
                 self._isRunning = False
+                try:
+                    self.local.put_nowait(RemoteError(format_exc(), ErrorTypesEnum.Other))
+                except:
+                    pass
+                remoteRaise(self.local)
+                self.terminate()
                 raise
 
         self.terminate()
@@ -166,20 +187,60 @@ class Searcher(Process):
             pass
 
 
+def remoteRaise(queue):
+    eType, instance, tb = sys.exc_info()
+    if eType == NoUserError:
+        errorType = ErrorTypesEnum.NoUser
+        data = 'Null uploader'
+    elif issubclass(eType, YoutubeDLError):
+        cause = instance.cause
+        data = str(cause)
+        if isinstance(cause, URLError):
+            errorType = ErrorTypesEnum.PageNonAccesible
+        else:
+            errorType = ErrorTypesEnum.Other
+    else:
+        errorType = ErrorTypesEnum.Other
+        data = str(instance)
+    queue.put_nowait(TaskResult((data, errorType), TaskTypesEnum.error))
+    
+
+def isRemoteError(result):
+    return isinstance(result, NoUserError) or issubclass(type(result), YoutubeDL)
+
+
 class MyLogger(object):
     def debug(self, msg):
         pass
 
     def warning(self, msg):
         print('Downloader warning: ' + msg)
-        if 'unable to' in msg:
-            raise ExtractorError(msg)
 
     def error(self, msg):
         print('Downloader error: ' + msg)
+        # raise NoUserError(msg)
 
 
 def my_hook(d):
     print('status', d)
     if d['status'] == 'finished':
         print('Done downloading, now converting ...')
+
+
+class TaskResult(object):
+    def __init__(self, result, taskType):
+        self.taskType = taskType
+        if taskType == TaskTypesEnum.error:
+            finalData = RemoteError(*result)
+        else:
+            finalData = result
+        self.data = finalData
+
+    def __repr__(self):
+        return 'Task result:' + str(self.taskType)
+
+
+class RemoteError(object):
+    def __init__(self, *args):
+        self.errorData = args[0]
+        self.errorType = args[1]

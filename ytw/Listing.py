@@ -71,23 +71,32 @@ class VideoItem(QFrame):
         labelTitle.setStyleSheet("QLabel {font-size: 16px;}")
         ld.addWidget(labelTitle)
 
+        def getFormatedDate(rawDate):
+            year, month, day = (int(i) for i in (rawDate[:4], rawDate[4:6], rawDate[6:]))
+            return datetime.date(year, month, day)
+
         if videoData['start_time']:
-            unformatedStart = videoData['start_time']
-            formatedStart = datetime.date(int(unformatedStart[:4]), int(unformatedStart[4:6]), int(unformatedStart[
-        6:]))
-            unformatedEnd = videoData['end_time'] or '1980.1.1'
-            formatedEnd = datetime.date(int(unformatedEnd[:4]), int(unformatedEnd[4:6]), int(unformatedEnd[6:]))
+            rawDate = videoData['start_time']
+            formatedStart = getFormatedDate(rawDate)
+
+            rawDate = videoData['end_time'] or '19800101'
+            formatedEnd = getFormatedDate(rawDate)
             ld.addWidget(QLabel('Starts at: {} | Ends at {}'.format(str(formatedStart), str(formatedEnd), True)))
         else:
-            unformatedDate = videoData['upload_date']
-            formatedDate = datetime.date(int(unformatedDate[:4]), int(unformatedDate[4:6]), int(unformatedDate[6:]))
+            rawDate = videoData['upload_date'] or '19800101'
+            formatedDate = getFormatedDate(rawDate)
             ld.addWidget(QLabel('{} | {:,} views'.format(str(formatedDate), videoData['view_count'], True)))
 
         labelUploader = QLabel()
-        labelUploader.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
-        labelUploader.setOpenExternalLinks(True)
-        labelUploader.setText("<a href=\"{}\">{}</a>".format(videoData['uploader_url'], videoData['uploader']))
+        url = videoData['uploader_url']
+        if url:
+            labelUploader.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+            labelUploader.setOpenExternalLinks(True)
+            uploaderStr = "<a href=\"{}\">{}</a>".format(url, videoData['uploader'])
+        else:
+            uploaderStr = videoData['uploader']
 
+        labelUploader.setText(uploaderStr)
         ld.addWidget(labelUploader)
         desc = videoData['description']
         if len(desc) > MAXDESCRIPTIONLEN:
@@ -320,7 +329,7 @@ class PreviewWidget(QWidget):
 
         tabWidget = QTabWidget()
         tabWidget.setObjectName('tabWidget')
-        myTabBar = MyTabBar(tabWidget, )
+        myTabBar = MyTabBar(tabWidget)
         tabWidget.setTabBar(myTabBar)
         self.tabWidget = tabWidget
         self.addEmptyTab()

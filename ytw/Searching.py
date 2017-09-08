@@ -1,10 +1,12 @@
-from PySide.QtGui import *
-from PySide.QtCore import QTimer, QObject, Signal
-
-from .ParallellSearcher import Searcher, SearchTypesEnum, DownloaderError
-from multiprocessing import Queue, cpu_count, Pipe
+from multiprocessing import Queue, cpu_count
 from queue import Empty, Full
-from collections import OrderedDict
+
+from PySide.QtCore import QObject, QTimer, Signal
+from PySide.QtGui import *
+
+from .ParallellSearcher import Searcher, NoUserError, TaskTypesEnum, ErrorTypesEnum, RemoteError, TaskResult
+# from .youtube_dl.utils import *
+from .updateYT_DL import updateYTD
 
 
 class SearchStatesEnum(object):
@@ -15,6 +17,8 @@ class SearchStatesEnum(object):
 
 class Search(QObject):
     notRead = Signal()
+    reStartRequired = Signal()
+    shutdownRequired = Signal(str, str)
 
     def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, pool, word='', excludeds=None,
                  status=SearchStatesEnum.readyToSearch):
@@ -32,6 +36,7 @@ class Search(QObject):
         self.baseCallback = baseCallback
         self.results = []
         self.timer = QTimer(self)
+        self.timer.stop()
         self.timer.timeout.connect(self._performSearch)
 
         self._unit = 'minutes'
@@ -87,38 +92,48 @@ class Search(QObject):
         return '\'{}\' , {} exclusions, {}'.format(self.word, len(self.excludeds), self.status)
 
     def _performSearch(self):
-        self._setSearching()
-        self.pool.appendTask(self.task(self.word, SearchTypesEnum.word), self._resultsCallback)
+        self.setSearching()
+        self.pool.appendTask(self.task(self.word, TaskTypesEnum.word), self._resultsCallback)
 
     def _resultsCallback(self, returnValue):
-        if not isinstance(returnValue, tuple):
-            if issubclass(type(returnValue), YoutubeDLError):
-                self.status = SearchStatesEnum.error
-                self.error = returnValue
-                return
-            else:
-                self.terminate()
-                raise returnValue
+        if not isinstance(returnValue, TaskResult):
+            self.terminate()
+            self.shutdownRequired(self.word, 'Return value is not of class \'TaskResult\'')
 
-        result, searchType = returnValue
+        result = returnValue.data
+        taskType = returnValue.taskType
 
-        if isinstance(result, DownloaderError):
-            print(result)  # todo:implement proper logging
-            return
-
-        if searchType == SearchTypesEnum.word:
+        if taskType == TaskTypesEnum.error:
+            errorType = result.errorType
+            if errorType == ErrorTypesEnum.NoUser:
+                gen = updateYTD(showMessage=False, useYield=True)
+                isNewer = next(gen)
+                if isNewer:
+                    res = QMessageBox.critical(None, 'Downloader error', 'An error has ocurred and '
+                                               'there is a new Youtube-DL version that might solve the problem.\n'
+                                               'Would you like to update and restart now?', QMessageBox.Yes,
+                                               QMessageBox.No)
+                    if res == QMessageBox.Yes:
+                        next(gen)
+                        self.reStartRequired.emit()
+            elif errorType == ErrorTypesEnum.PageNonAccesible:
+                QMessageBox.critical(None, 'Downloader error', 'A network related error has ocurred.\n '
+                                                               'Is Internet working?\n', QMessageBox.Ok)
+                self.setSearchFinished()
+                        
+        elif taskType == TaskTypesEnum.word:
             self._lastFoundCount = len(result['entries'])
 
             for video in result['entries']:
                 videoID = video['id']
                 if videoID in self.results:
                     continue
-                if videoID not in self.videosCache.keys():
-                    self.pool.appendTask(self.task(video['url'], SearchTypesEnum.video), self._resultsCallback)
+                cachedVideoResult = self.videosCache.get(videoID)
+                if cachedVideoResult is None:
+                    self.pool.appendTask(self.task(video['url'], TaskTypesEnum.video), self._resultsCallback)
                 else:
-                    cachedVideoResult = self.videosCache[videoID]
-                    self._resultsCallback((cachedVideoResult, SearchTypesEnum.video))
-        elif searchType == SearchTypesEnum.video:
+                    self._resultsCallback(TaskResult(cachedVideoResult, TaskTypesEnum.video))
+        elif taskType == TaskTypesEnum.video:
             self._lastFoundCount -= 1
             if self._lastFoundCount == 0:
                 self.setReady()
@@ -126,15 +141,14 @@ class Search(QObject):
             self.results.append(videoID)
             if videoID not in self.thumbsCache.keys():
                 thumbURL = result['thumbnail']
-                self.pool.appendTask((self.task(thumbURL, videoID), SearchTypesEnum.thumb), self.thumbsHandler)
+                self.pool.appendTask(self.task((thumbURL, videoID), TaskTypesEnum.thumb), self._resultsCallback)
 
             self.isRead = False
             self.baseCallback(self.word, result)
+        else:
+            self.thumbsCallback(result)
 
-    def thumbsHandler(self, result):
-        self.thumbsCallback(result)
-
-    def _setSearching(self):
+    def setSearching(self):
         self.timer.stop()
         self._isSearching = True
 
@@ -145,9 +159,16 @@ class Search(QObject):
         self.status = SearchStatesEnum.readyToSearch
         self.timer.start(miliseconds)
 
+    def setSearchFinished(self):
+        if self.status != SearchStatesEnum.paused:
+            self.setReady()
+        else:
+            self._isSearching = False
+
     def resetTimer(self):
         self.timer.stop()
-        self.timer.start(self._miliseconds)
+        if self.status != SearchStatesEnum.paused:
+            self.timer.start(self._miliseconds)
 
     @property
     def order(self):
@@ -178,27 +199,31 @@ class PoolableTask(object):
         self.sorting = sorting
         self.maxResults = maxResults
         self.task = None
-        self.searchType= None
+        self.taskType = None
 
-    def __call__(self, task, searchType):
+    def __call__(self, task, taskType):
         self.task = task
-        self.searchType = searchType
+        self.taskType = taskType
         return self
+
+    def __repr__(self):
+        return str(self.task) + '-' + str(self.taskType)
 
     def __getitem__(self, item):
         if item == 0:
             return self.task
         elif item == 1:
-            return self.searchType
+            return self.taskType
         else:
             raise IndexError('wrong index for task')
 
 
 class Pool(QObject):
+    poolCrashed = Signal(str)
+
     def __init__(self, number=cpu_count(), *args, **kwargs):
         super(Pool, self).__init__(*args, **kwargs)
         self._available = []
-        self._busy = {}
         self.searchers = {}
         self.tasks = []
         self.remotes = {}
@@ -208,21 +233,21 @@ class Pool(QObject):
         self.timer.timeout.connect(self.update)
 
         for i in range(number):
-            s = Searcher()
-            sid = id(s)
-            self.searchers[sid] = s
-            client = Queue()
-            client.cancel_join_thread()
-            self.locals[sid] = client
-            self.remotes[sid] = s.prepareConnections(client)
-            s.start()
-            self._available.append(sid)
+            self.createRemoteSearcher()
+
+    def createRemoteSearcher(self):
+        s = Searcher()
+        sid = id(s)
+        self.searchers[sid] = s
+        client = Queue()
+        client.cancel_join_thread()
+        self.locals[sid] = client
+        self.remotes[sid] = s.prepareConnections(client)
+        s.start()
+        self._available.append(sid)
 
     def start(self):
-        self.timer.start(1)
-
-    def stop(self):
-        self.timer.stop()
+        self.timer.start(100)
 
     def appendTask(self, task, callback):
         if not isinstance(task, PoolableTask):
@@ -243,29 +268,45 @@ class Pool(QObject):
                     self.tasks.pop(0)
                     if callback is not None:
                         self.callbacks[sid] = callback
-                        self._busy[sid] = sid
                         self._available.pop(0)
                 except Full:
                     pass
-                except AssertionError:
+                except Exception as ex:
                     self.terminate()
-                except OSError:
-                    self.terminate()
+                    self.poolCrashed.emit(str(ex))
+                    raise ex
 
+        newRemoteNeeded = False
         for ID, remote in self.remotes.items():
-            qApp.processEvents()
             try:
                 result = remote.get_nowait()
-                self._busy.pop(ID)
-                self._available.append(ID)
-                self.callbacks[ID](result)
+                if isinstance(result, RemoteError):
+                    QMessageBox.critical(None, 'Critical error', 'A fatal error ocurred in ParallellSearcher. \n'
+                                                                 'Please restart YT Watcher. If the error persist, '
+                                                                 'report it.')
+                    raise RuntimeError(result.errorData)
+                elif result.taskType == TaskTypesEnum.error:
+                    print('Remote error:' + str(result.data.errorData))
+                    if result.data.errorType == ErrorTypesEnum.Other:
+                        newRemoteNeeded = True
+                        return
+                    self._available.append(ID)
+                    self.callbacks[ID](result)
+                else:
+                    self._available.append(ID)
+                    self.callbacks[ID](result)
             except Empty:
                 pass
-            except OSError:
+            except Exception as ex:
                 self.terminate()
-                return
+                self.poolCrashed.emit(str(ex))
+                raise ex
+
+        if newRemoteNeeded:
+            self.createRemoteSearcher()
 
     def terminate(self):
+        self.timer.stop()
         for c in self.locals.values():
             try:
                 c.put_nowait('')
@@ -277,155 +318,3 @@ class Pool(QObject):
 
         for s in self.searchers.values():
             s.terminate()
-
-
-class SearchPropertiesWidget(QWidget):
-    searchSortingChanged = Signal()
-
-    def __init__(self, parent):
-        super(SearchPropertiesWidget, self).__init__(parent)
-
-        self.search = None
-        mainlay = QVBoxLayout()
-        self.setLayout(mainlay)
-        self._canceled = False
-
-        layoutForm = QFormLayout()
-        mainlay.addLayout(layoutForm)
-
-        self.searchWordEdit = QLineEdit()
-        self.searchWordEdit.setEnabled(False)
-        self.excludedEdit = QPlainTextEdit()
-
-        self.excludedEdit.textChanged.connect(self.excludedsChanged)
-        layoutForm.addRow(QLabel('Word'), self.searchWordEdit)
-        layoutForm.addRow(QLabel('Exclude terms\n(one per line)'), self.excludedEdit)
-
-        layoutEvery = QHBoxLayout()
-        self.spinboxRefreshTime = QSpinBox()
-        self.spinboxRefreshTime.setValue(2)
-        comboEveryUnit = QComboBox()
-        comboEveryUnit.addItems(['Seconds', 'Minutes', 'Hours'])
-        comboEveryUnit.setCurrentIndex(1)
-        comboEveryUnit.setEditable(False)
-        self.comboEveryUnit = comboEveryUnit
-        layoutEvery.addWidget(self.spinboxRefreshTime)
-        layoutEvery.addWidget(self.comboEveryUnit)
-        self.spinboxRefreshTime.valueChanged.connect(self.updateTimeChanged)
-        self.comboEveryUnit.currentIndexChanged.connect(self.updateTimeChanged)
-        layoutForm.addRow(QLabel('Update every'), layoutEvery)
-
-        self._internalReordering = False
-        comboOrder = QComboBox()
-        comboOrder.addItems(['Relevance', 'Date'])
-        comboOrder.setCurrentIndex(1)
-        comboOrder.setEditable(False)
-        comboOrder.currentIndexChanged.connect(self.changedSorting)
-        self.comboOrder = comboOrder
-        layoutForm.addRow(QLabel('Sort by'), comboOrder)
-
-        spinboxMaxResults = QSpinBox()
-        spinboxMaxResults.setValue(50)
-        spinboxMaxResults.valueChanged.connect(self.changedSorting)
-        layoutForm.addRow(QLabel('Max results'), spinboxMaxResults)
-        self.spinboxMaxResults = spinboxMaxResults
-
-        groupState = QGroupBox('State')
-        self.radioStarted = QRadioButton('Running', groupState)  # todo: check state change on radio change
-        self.radioStarted.setChecked(True)
-        self.radioPaused = QRadioButton('Paused', groupState)
-        self.radioPaused.toggled.connect(self.searchStatusChanged)
-        layoutStates = QVBoxLayout()
-        layoutStates.addWidget(self.radioStarted)
-        layoutStates.addWidget(self.radioPaused)
-        groupState.setLayout(layoutStates)
-
-        layoutForm.addRow(groupState)
-        self._onRefresh = False
-
-    def changedSorting(self):
-        if self._internalReordering:
-            return
-
-        self.search.order = self.comboOrder.currentIndex()
-        self.search.maxResults = self.spinboxMaxResults.value()
-        self.searchSortingChanged.emit()
-        if self.search.status != SearchStatesEnum.paused:
-            self.search.forceSearchNow()
-
-    def getRefreshTime(self):
-        amount = self.spinboxRefreshTime.value()
-        lowTex = self.comboEveryUnit.currentText().lower()
-        if lowTex == 'minutes':
-            amount *= 60
-        elif lowTex == 'hours':
-            amount *= 60 * 60
-
-        return amount
-
-    def refresh(self, search):
-        self._onRefresh = True
-        self.search = search
-
-        self.searchWordEdit.setText(search.word)
-
-        if search.status == SearchStatesEnum.readyToSearch:
-            self.radioStarted.setChecked(True)
-        else:
-            self.radioPaused.setChecked(True)
-            
-        self.excludedEdit.setPlainText('\n'.join(search.excludeds))
-        self.searchWordEdit.setEnabled(False)
-
-        seconds = search.seconds
-        index = 0
-
-        if search._unit == 'minutes':
-            index = 1
-            seconds /= 60
-        elif search._unit == 'hours':
-            index = 2
-            seconds /= 60
-            seconds /= 60
-
-        self.comboEveryUnit.setCurrentIndex(index)
-        self.spinboxRefreshTime.setValue(seconds)
-
-        self._internalReordering = True
-        self.comboOrder.setCurrentIndex(search.order)
-        self._internalReordering = False
-        self.spinboxMaxResults.setValue(search.maxResults)
-
-        self._onRefresh = False
-
-    def searchStatusChanged(self):
-        if self._onRefresh:
-            return
-        if self.radioPaused.isChecked():
-            self.search.setPaused()
-        else:
-            self.search.setReady()
-
-    def excludedsChanged(self):
-        text = self.excludedEdit.toPlainText()
-        if text != '':
-            self.search.excludeds = text.split('\n')
-        else:
-            self.search.excludeds = []
-
-    def updateTimeChanged(self):
-        self.search.seconds = self.getRefreshTime()
-        self.search._unit = self.comboEveryUnit.currentText().lower()
-
-    def close(self, *args, **kwargs):
-        self._canceled = True
-        super(SearchPropertiesWidget, self).close()
-
-    def ready(self):
-        self.setResult(QDialog.Accepted)
-        self.hide()
-
-
-def setApp(app):
-    global qApp
-    qApp = app

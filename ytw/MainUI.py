@@ -6,10 +6,13 @@ from multiprocessing import TimeoutError as PoolTimeOutError
 from os import listdir, mkdir, remove
 
 from .updateYT_DL import is_YTDL_importable, updateYTD
+from .ParallellSearcher import isRemoteError
 
 CACHEFILEEXT = '.cache'
 
 WINDOWFILENAME = 'win.ini'
+
+RESTARTREQUIRED = False
 
 if not is_YTDL_importable():
     updateYTD(True)
@@ -18,8 +21,8 @@ from .Listing import *
 from .Searching import *
 from ._paths import *
 
-import urllib3 as ulib
-from PySide.QtCore import QSettings
+# import urllib3 as ulib
+from PySide.QtCore import QSettings, Signal
 
 
 class MainWindow(QMainWindow):
@@ -58,7 +61,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('YT Watcher')
         self.setMinimumSize(QSize(700, 400))
 
-        self._addWidgets()
+        self.addWidgets()
         # self.statusBar().showMessage('Ready')
         self.resize(QSize(800, 600))
         self.setWindowIcon(QIcon(path.join(iconPath, 'logo.png')))
@@ -72,6 +75,7 @@ class MainWindow(QMainWindow):
         # self.timerConection.start(5000)
 
         self.mainPool = Pool(6)
+        self.mainPool.poolCrashed.connect(self.poolCrashed)
         self.mainPool.start()
         self.show()
         self.loadWindowsPlaces()
@@ -117,7 +121,7 @@ class MainWindow(QMainWindow):
         qr.moveCenter(cp)
         self.move(qr.topLeft())
 
-    def _addWidgets(self):
+    def addWidgets(self):
         prevWid = PreviewWidget(self.iconAdd, self.iconTools, self.iconSearch)
         prevWid.newSearchRequested.connect(self.newSearchRequested)
         prevWid.removeSearchRequested.connect(self.removeSearchRequested)
@@ -133,14 +137,13 @@ class MainWindow(QMainWindow):
         self.setLayout(self.layoutMain)
 
         self.searchBox = SearchPropertiesWidget(self)
+        self.searchBox.setRadioIcons(self.iconReady, self.iconPaused)
         self.searchBox.searchSortingChanged.connect(self.updateSorting)
         dockSearchProperties = QDockWidget()
         dockSearchProperties.setObjectName('dockSearchProperties')
         dockSearchProperties.visibilityChanged.connect(self.searchPropertiesBoxVsibilityChanged)
         dockSearchProperties.setEnabled(False)
         dockSearchProperties.setWidget(self.searchBox)
-        # dockSearchProperties.resize(dockSearchProperties.size())
-        # dockSearchProperties.resize(100, dockSearchProperties.size().height())
         dockSearchProperties.setWindowTitle('Search Properties')
         self.dockSearchProperties = dockSearchProperties
         self.addDockWidget(Qt.LeftDockWidgetArea, dockSearchProperties)
@@ -166,8 +169,9 @@ class MainWindow(QMainWindow):
         self.createNewSearch(word)
 
     def removeSearchRequested(self, word):
-        res = QMessageBox.question(self, 'Remove search', 'Are you sure you want to remove search of \'{}\''.format(word),
-                                   QMessageBox.Yes, QMessageBox.No)
+        res = QMessageBox.question(self, 'Remove search',
+                                   'Are you sure you want to remove search of \'{}\''.format(word), QMessageBox.Yes,
+                                   QMessageBox.No)
         if res == QMessageBox.No:
             return
         fileName = '_' + word + CACHEFILEEXT
@@ -184,8 +188,11 @@ class MainWindow(QMainWindow):
         else:
             status = SearchStatesEnum.readyToSearch
 
-        search = Search(self.videoInfosCache, self.thumbsCache, self.searchReady, self.thumbReady,
-                        self.mainPool, word, None, status)
+        search = Search(self.videoInfosCache, self.thumbsCache, self.videoDataArrived, self.thumbReady, self.mainPool,
+                        word, None, status)
+
+        search.reStartRequired.connect(self.restartRequired)
+        search.shutdownRequired.connect(self.searchCrashed)
 
         self.searches[word] = search
 
@@ -199,19 +206,20 @@ class MainWindow(QMainWindow):
 
         return search
 
-    def searchReady(self, word, result):
+    def videoDataArrived(self, word, result):
         videoID = result['id']
         if videoID not in self.videoInfosCache.keys():
             self.dumpVideoInfo(videoID, result)
             self.videoInfosCache[videoID] = result
+
+        if word not in self.searches.keys():
+            return
 
         if videoID in self.thumbsCache.keys():
             thumbPix = self.retrieveThumbnail(videoID)
         else:
             thumbPix = None
 
-        if word not in self.searches.keys():
-            return 
         newVideoItem = self.previewsWidget.updateSearch(word, result, thumbPix)
         self.newThumbReady.connect(newVideoItem.thumbArrived)
 
@@ -221,13 +229,24 @@ class MainWindow(QMainWindow):
         return self.thumbnailPixmaps[videoID]
 
     def thumbReady(self, result):
-        data, searchType = result
-        videoID, thumbPath = data
+        videoID, thumbPath = result
         self.thumbsCache[videoID] = thumbPath
         self.newThumbReady.emit(videoID, self.retrieveThumbnail)
 
     def editSearchCallback(self, search):
         self.newSearchCallback(search, True)
+
+    def searchCrashed(self, word, reason):
+        self.raiseErrorToUI('Search error', 'Critical error while searching for \'{}\':\n{}\n'
+                                            'Please report this issue.'.format(word, reason))
+
+    def poolCrashed(self, reason):
+        self.raiseErrorToUI('Pool error', 'Critical error in multiprocess pool:\n{}\n'
+                                          'Please report this issue.'.format(reason))
+
+    def raiseErrorToUI(self, title, msg):
+        QMessageBox.critical(self, title, msg)
+        self.close()
 
     def closeEvent(self, *args, **kwargs):
         if self.closedPerformed:
@@ -237,6 +256,7 @@ class MainWindow(QMainWindow):
 
         self.dumpSearches()
         self.saveWindowsPlaces()
+        self.mainPool.terminate()
 
         for s in self.searches.values():
             s.terminate()
@@ -327,6 +347,7 @@ class MainWindow(QMainWindow):
                     search.maxResults = searchInitDict['max']
                     search.order = searchInitDict['order']
                     if not isPaused:
+                        search.setReady()
                         search.forceSearchNow()
 
     def loadThumbsCache(self):
@@ -358,6 +379,11 @@ class MainWindow(QMainWindow):
         for s in self.searches:
             s._externalPause('pause')
 
+    def restartRequired(self):
+        global RESTARTREQUIRED
+        RESTARTREQUIRED = True
+        self.close()
+
 
 def _pickleableCheck(dummy):
     con = ulib.connection_from_url('https://youtube.com')
@@ -370,8 +396,172 @@ def _pickleableCheck(dummy):
         raise
 
 
+class SearchPropertiesWidget(QWidget):
+    searchSortingChanged = Signal()
+    wordChanged = Signal(str)
+
+    def __init__(self, parent):
+        super(SearchPropertiesWidget, self).__init__(parent)
+
+        self.search = None
+        mainlay = QVBoxLayout()
+        self.setLayout(mainlay)
+        self._canceled = False
+
+        layoutForm = QFormLayout()
+        mainlay.addLayout(layoutForm)
+
+        self.editWord = QTextEdit()
+        self.editWord.setEnabled(False)
+        self.editExcluded = QPlainTextEdit()
+        self.editExcluded.textChanged.connect(self.excludedsChanged)
+
+        layoutForm.addRow(QLabel('Word:'), self.editWord)
+        layoutForm.addRow(QLabel('Exclude terms\n(one per line):'), self.editExcluded)
+
+        layoutEvery = QHBoxLayout()
+        self.spinboxRefreshTime = QSpinBox()
+        self.spinboxRefreshTime.setValue(2)
+        self.spinboxRefreshTime.setMinimum(1)
+        comboEveryUnit = QComboBox()
+        comboEveryUnit.addItems(['Seconds', 'Minutes', 'Hours'])
+        comboEveryUnit.setCurrentIndex(1)
+        comboEveryUnit.setEditable(False)
+        self.comboEveryUnit = comboEveryUnit
+        layoutEvery.addWidget(self.spinboxRefreshTime)
+        layoutEvery.addWidget(self.comboEveryUnit)
+        self.spinboxRefreshTime.valueChanged.connect(self.updateTimeChanged)
+        self.comboEveryUnit.currentIndexChanged.connect(self.updateTimeChanged)
+        layoutForm.addRow(QLabel('Update every:'), layoutEvery)
+
+        self._internalReordering = True
+        comboOrder = QComboBox()
+        comboOrder.addItems(['Relevance', 'Date'])
+        comboOrder.setCurrentIndex(1)
+        comboOrder.setEditable(False)
+        comboOrder.currentIndexChanged.connect(self.changedSorting)
+        self.comboOrder = comboOrder
+        layoutForm.addRow(QLabel('Mode:'), comboOrder)
+
+        spinboxMaxResults = QSpinBox()
+        spinboxMaxResults.setValue(50)
+        spinboxMaxResults.setMinimum(1)
+        spinboxMaxResults.valueChanged.connect(self.changedMaxResults)
+        layoutForm.addRow(QLabel('Max results:'), spinboxMaxResults)
+        self.spinboxMaxResults = spinboxMaxResults
+
+        groupState = QGroupBox('State')
+        self.radioStarted = QRadioButton('Running', groupState)  # todo: check state change on radio change
+        self.radioStarted.setChecked(True)
+        self.radioPaused = QRadioButton('Paused', groupState)
+        self.radioPaused.toggled.connect(self.searchStatusChanged)
+        layoutStates = QVBoxLayout()
+        layoutStates.addWidget(self.radioStarted)
+        layoutStates.addWidget(self.radioPaused)
+        groupState.setLayout(layoutStates)
+
+        layoutForm.addRow(groupState)
+        self._onRefresh = False
+        self._internalReordering = False
+
+    def changedSorting(self):
+        if self._internalReordering:
+            return
+
+        self.search.order = self.comboOrder.currentIndex()
+        self.searchSortingChanged.emit()
+        if self.search.status != SearchStatesEnum.paused:
+            self.search.forceSearchNow()
+
+    def changedMaxResults(self, val):
+        self.search.maxResults = val
+
+    def getRefreshTime(self):
+        amount = self.spinboxRefreshTime.value()
+        lowTex = self.comboEveryUnit.currentText().lower()
+        if lowTex == 'minutes':
+            amount *= 60
+        elif lowTex == 'hours':
+            amount *= 60 * 60
+
+        return amount
+
+    def setRadioIcons(self, iconReady, iconPaused):
+        self.radioStarted.setIcon(iconReady)
+        self.radioPaused.setIcon(iconPaused)
+
+    def refresh(self, search):
+        self.wordChanged.emit(search.word)
+        self.editWord.setText(search.word)
+        self._onRefresh = True
+        self.search = search
+
+        self.setWindowTitle(search.word.upper())
+
+        if search.status == SearchStatesEnum.readyToSearch:
+            self.radioStarted.setChecked(True)
+        else:
+            self.radioPaused.setChecked(True)
+
+        self.editExcluded.setPlainText('\n'.join(search.excludeds))
+
+        seconds = search.seconds
+        index = 0
+
+        if search._unit == 'minutes':
+            index = 1
+            seconds /= 60
+        elif search._unit == 'hours':
+            index = 2
+            seconds /= 60
+            seconds /= 60
+
+        self.comboEveryUnit.setCurrentIndex(index)
+        self.spinboxRefreshTime.setValue(seconds)
+
+        self._internalReordering = True
+        self.comboOrder.setCurrentIndex(search.order)
+        self.spinboxMaxResults.setValue(search.maxResults)
+        self._internalReordering = False
+
+        self._onRefresh = False
+
+    def searchStatusChanged(self):
+        if self._onRefresh:
+            return
+        if self.radioPaused.isChecked():
+            self.search.setPaused()
+        else:
+            self.search.setReady()
+
+    def excludedsChanged(self):
+        text = self.editExcluded.toPlainText()
+        if text != '':
+            self.search.excludeds = text.split('\n')
+        else:
+            self.search.excludeds = []
+
+    def updateTimeChanged(self):
+        self.search._unit = self.comboEveryUnit.currentText().lower()
+        if self.search._unit == 'seconds':
+            minval = 10
+        else:
+            minval = 1
+        self.spinboxRefreshTime.setMinimum(minval)
+        self.search.seconds = self.getRefreshTime()
+
+    def close(self, *args, **kwargs):
+        self._canceled = True
+        super(SearchPropertiesWidget, self).close()
+
+    def ready(self):
+        self.setResult(QDialog.Accepted)
+        self.hide()
+
+
 def _runMainWindow():
     app = QApplication('')
-    setApp(app)
     mainWin = MainWindow()
-    sys.exit(app.exec_())
+    app.exec_()
+    if RESTARTREQUIRED:
+        _runMainWindow()
