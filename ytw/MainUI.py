@@ -411,7 +411,7 @@ class SearchPropertiesWidget(QWidget):
         layoutForm = QFormLayout()
         mainlay.addLayout(layoutForm)
 
-        self.editWord = QTextEdit()
+        self.editWord = QLineEdit()
         self.editWord.setEnabled(False)
         self.editExcluded = QPlainTextEdit()
         self.editExcluded.textChanged.connect(self.excludedsChanged)
@@ -560,7 +560,8 @@ class SearchPropertiesWidget(QWidget):
 
 
 def _runMainWindow():
-    app = QApplication('')
+    if not RESTARTREQUIRED:
+        app = QApplication('')
     mainWin = MainWindow()
     app.exec_()
     if RESTARTREQUIRED:

@@ -113,7 +113,7 @@ class VideoItem(QFrame):
 
         self.setLayout(lm)
 
-    @Slot()
+    @Slot(str, object)
     def thumbArrived(self, videoID, retrieverFuction):
         if videoID == self.videoData['id']:
             newQpixmap = retrieverFuction(videoID)
@@ -405,6 +405,7 @@ class PreviewWidget(QWidget):
         if ret and word != '':
             self.newSearchRequested.emit(word)
 
+    @Slot(int)
     def _currentChanged(self, index):
         word = self.tabWidget.tabText(index)
         if word != '':
@@ -424,6 +425,7 @@ class PreviewWidget(QWidget):
             item = listWidget.item(i)
             listWidget.itemWidget(item).setViewMode(viewMode)
 
+    @Slot()
     def switchViewMode(self):
         listPreviews = self.tabWidget.widget(self.tabWidget.currentIndex())
         search = listPreviews.search
@@ -445,6 +447,7 @@ class PreviewWidget(QWidget):
         listPreviews.setViewMode(mode)
         self.updateViewsViewMode(listPreviews,mode)
 
+    @Slot()
     def changeViewMode(self):
         if self._isChangingVieModeFromButton:
             return
@@ -460,6 +463,7 @@ class PreviewWidget(QWidget):
         listPreviews.setViewMode(mode)
         self.updateViewsViewMode(listPreviews, mode)
 
+    @Slot(int)
     def _tabClosing(self, index):
         self.removeSearchRequested.emit(self.tabWidget.tabText(index))
 

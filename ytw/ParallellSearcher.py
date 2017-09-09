@@ -16,7 +16,7 @@ MAXRETRIES = 3
 
 
 class ErrorTypesEnum(object):
-    NoUser = 'NonValidData'
+    NonValidData = 'NonValidData'
     PageNonAccesible = 'PageNonAccesible'
     Other = 'Other'
 
@@ -29,7 +29,7 @@ class TaskTypesEnum(object):
     error = 'error'
 
 
-class NoUserError(BaseException):
+class NonValidDataError(BaseException):
     def __init__(self, msg, searchType, what):
         self.searchType = searchType
         self.what = what
@@ -84,7 +84,7 @@ class Searcher(Process):
                 resultsExtractor = self.resultsExtractor
                 videoInfo = resultsExtractor.extract(what)
                 if not self.hasEssentialData(videoInfo):
-                    raise NoUserError('Null uploader', searchType, what)
+                    raise NonValidDataError('Null uploader', searchType, what)
                 if videoInfo['like_count'] is None:
                     videoInfo['like_count'] = 0
                 if videoInfo['dislike_count'] is None:
@@ -154,7 +154,7 @@ class Searcher(Process):
                         data = None
                         if result is not None:
                             self.local.put(TaskResult(result, searchType))
-                    except (NoUserError, YoutubeDLError):
+                    except (NonValidDataError, YoutubeDLError):
                         retries += 1
                         if retries == MAXRETRIES:
                             remoteRaise(self.local)
@@ -189,11 +189,14 @@ class Searcher(Process):
 
 def remoteRaise(queue):
     eType, instance, tb = sys.exc_info()
-    if eType == NoUserError:
-        errorType = ErrorTypesEnum.NoUser
+    if eType == NonValidDataError:
+        errorType = ErrorTypesEnum.NonValidData
         data = 'Null uploader'
     elif issubclass(eType, YoutubeDLError):
-        cause = instance.cause
+        if isinstance(instance, DownloadError):
+            cause = 'Download error'
+        else:
+            cause = instance.cause
         data = str(cause)
         if isinstance(cause, URLError):
             errorType = ErrorTypesEnum.PageNonAccesible
@@ -206,7 +209,7 @@ def remoteRaise(queue):
     
 
 def isRemoteError(result):
-    return isinstance(result, NoUserError) or issubclass(type(result), YoutubeDL)
+    return isinstance(result, NonValidDataError) or issubclass(type(result), YoutubeDL)
 
 
 class MyLogger(object):
@@ -218,7 +221,7 @@ class MyLogger(object):
 
     def error(self, msg):
         print('Downloader error: ' + msg)
-        # raise NoUserError(msg)
+        # raise NonValidDataError(msg)
 
 
 def my_hook(d):

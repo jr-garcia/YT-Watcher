@@ -4,7 +4,7 @@ from queue import Empty, Full
 from PySide.QtCore import QObject, QTimer, Signal
 from PySide.QtGui import *
 
-from .ParallellSearcher import Searcher, NoUserError, TaskTypesEnum, ErrorTypesEnum, RemoteError, TaskResult
+from .ParallellSearcher import Searcher, NonValidDataError, TaskTypesEnum, ErrorTypesEnum, RemoteError, TaskResult
 # from .youtube_dl.utils import *
 from .updateYT_DL import updateYTD
 
@@ -20,12 +20,12 @@ class Search(QObject):
     reStartRequired = Signal()
     shutdownRequired = Signal(str, str)
 
-    def __init__(self, videosCache, thumbsCache, baseCallback, thumbsCallback, pool, word='', excludeds=None,
+    def __init__(self, videoInfosCache, thumbsCache, baseCallback, thumbsCallback, pool, word='', excludeds=None,
                  status=SearchStatesEnum.readyToSearch):
         super(Search, self).__init__()
         self.thumbsCallback = thumbsCallback
         self.thumbsCache = thumbsCache
-        self.videosCache = videosCache
+        self.videoInfosCache = videoInfosCache
         if excludeds is None:
             excludeds = []
         self.word = word
@@ -105,7 +105,7 @@ class Search(QObject):
 
         if taskType == TaskTypesEnum.error:
             errorType = result.errorType
-            if errorType == ErrorTypesEnum.NoUser:
+            if errorType == ErrorTypesEnum.NonValidData:
                 gen = updateYTD(showMessage=False, useYield=True)
                 isNewer = next(gen)
                 if isNewer:
@@ -128,7 +128,7 @@ class Search(QObject):
                 videoID = video['id']
                 if videoID in self.results:
                     continue
-                cachedVideoResult = self.videosCache.get(videoID)
+                cachedVideoResult = self.videoInfosCache.get(videoID)
                 if cachedVideoResult is None:
                     self.pool.appendTask(self.task(video['url'], TaskTypesEnum.video), self._resultsCallback)
                 else:
@@ -202,9 +202,10 @@ class PoolableTask(object):
         self.taskType = None
 
     def __call__(self, task, taskType):
-        self.task = task
-        self.taskType = taskType
-        return self
+        newTask = PoolableTask(self.sorting, self.maxResults)
+        newTask.task = task
+        newTask.taskType = taskType
+        return newTask
 
     def __repr__(self):
         return str(self.task) + '-' + str(self.taskType)
