@@ -15,6 +15,14 @@ class SearchStatesEnum(object):
     error = 'error'
 
 
+class SortingEnum(object):
+    newest = 'Newest'
+    oldest = 'Oldest'
+    views = 'Views'
+    likes = 'Likes'
+    lenght = 'Lenght'
+
+
 class Search(QObject):
     notRead = Signal()
     reStartRequired = Signal()
@@ -34,7 +42,7 @@ class Search(QObject):
         self.index = -1
         self._miliseconds = 2 * 60 * 1000
         self.baseCallback = baseCallback
-        self.results = []
+        self.results = {}
         self.timer = QTimer(self)
         self.timer.stop()
         self.timer.timeout.connect(self._performSearch)
@@ -46,10 +54,8 @@ class Search(QObject):
         self.error = None
         self._externalPause = False
 
-        self.resultsQueue = []
-
-        self.mode = QListView.ListMode
-        self._order = 1
+        self.viewMode = QListView.ListMode
+        self._searchMode = 1
         self._maxResults = 50
 
         self.pool = pool
@@ -57,7 +63,17 @@ class Search(QObject):
         self._isSearching = False
         self._isRead = True
 
-        self.task = PoolableTask(self._order, self._maxResults)
+        self._sorting = SortingEnum.newest
+
+        self.task = PoolableTask(self._searchMode, self._maxResults)
+
+    @property
+    def sorting(self):
+        return self._sorting
+
+    @sorting.setter
+    def sorting(self, value):
+        self._sorting = value
 
     @property
     def maxResults(self):
@@ -126,7 +142,7 @@ class Search(QObject):
 
             for video in result['entries']:
                 videoID = video['id']
-                if videoID in self.results:
+                if videoID in self.results.keys():
                     continue
                 cachedVideoResult = self.videoInfosCache.get(videoID)
                 if cachedVideoResult is None:
@@ -138,7 +154,7 @@ class Search(QObject):
             if self._lastFoundCount == 0:
                 self.setReady()
             videoID = result['id']
-            self.results.append(videoID)
+            self.results[videoID] = result
             if videoID not in self.thumbsCache.keys():
                 thumbURL = result['thumbnail']
                 self.pool.appendTask(self.task((thumbURL, videoID), TaskTypesEnum.thumb), self._resultsCallback)
@@ -171,12 +187,12 @@ class Search(QObject):
             self.timer.start(self._miliseconds)
 
     @property
-    def order(self):
-        return self._order
+    def searchMode(self):
+        return self._searchMode
 
-    @order.setter
-    def order(self, value):
-        self._order = value
+    @searchMode.setter
+    def searchMode(self, value):
+        self._searchMode = value
         self.task.sorting = value
 
     def forceSearchNow(self):
@@ -188,7 +204,6 @@ class Search(QObject):
 
     def terminate(self):
         self.timer.stop()
-        self.pool.terminate()
 
     def _externalPause(self, state):
         self.queue.put_nowait(state)

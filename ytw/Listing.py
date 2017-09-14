@@ -1,14 +1,17 @@
 from PySide.QtGui import *
 from PySide.QtCore import Qt, Slot, QPoint, QRect, QSize, Signal
 import datetime
-import locale
 from os import path
 import webbrowser
+from operator import itemgetter
 
 from ._paths import *
+from .Searching import SortingEnum
 
-MAXDESCRIPTIONLEN = 400
-THUMBSIZE = 200
+
+DEFAULT_DATE = '19800101'
+MAX_DESCRIPTION_LEN = 400
+THUMB_SIZE = 200
 
 
 class VideoItem(QFrame):
@@ -71,20 +74,16 @@ class VideoItem(QFrame):
         labelTitle.setStyleSheet("QLabel {font-size: 16px;}")
         ld.addWidget(labelTitle)
 
-        def getFormatedDate(rawDate):
-            year, month, day = (int(i) for i in (rawDate[:4], rawDate[4:6], rawDate[6:]))
-            return datetime.date(year, month, day)
-
         if videoData['start_time']:
             rawDate = videoData['start_time']
-            formatedStart = getFormatedDate(rawDate)
+            formatedStart = getDateObject(rawDate)
 
-            rawDate = videoData['end_time'] or '19800101'
-            formatedEnd = getFormatedDate(rawDate)
+            rawDate = videoData['end_time'] or DEFAULT_DATE
+            formatedEnd = getDateObject(rawDate)
             ld.addWidget(QLabel('Starts at: {} | Ends at {}'.format(str(formatedStart), str(formatedEnd), True)))
         else:
-            rawDate = videoData['upload_date'] or '19800101'
-            formatedDate = getFormatedDate(rawDate)
+            rawDate = videoData['upload_date'] or DEFAULT_DATE
+            formatedDate = getDateObject(rawDate)
             ld.addWidget(QLabel('{} | {:,} views'.format(str(formatedDate), videoData['view_count'], True)))
 
         labelUploader = QLabel()
@@ -99,8 +98,8 @@ class VideoItem(QFrame):
         labelUploader.setText(uploaderStr)
         ld.addWidget(labelUploader)
         desc = videoData['description']
-        if len(desc) > MAXDESCRIPTIONLEN:
-            desc = desc[:MAXDESCRIPTIONLEN] + '...'
+        if len(desc) > MAX_DESCRIPTION_LEN:
+            desc = desc[:MAX_DESCRIPTION_LEN] + '...'
         labelDesc = QLabel(desc)
         labelDesc.setWordWrap(True)
 
@@ -145,23 +144,23 @@ def likesReformat(count):
 class Thumbnail(QWidget):
     def __init__(self, videoData, thumbPix):
         super(Thumbnail, self).__init__()
-        self.setFixedSize(THUMBSIZE, THUMBSIZE)
+        self.setFixedSize(THUMB_SIZE, THUMB_SIZE)
         self.resize(self.sizeHint())
 
         like_count = likesReformat(videoData['like_count'])
         labelLike = QLabel(str(like_count), self)
-        labelLike.setFixedWidth(THUMBSIZE / 2)
+        labelLike.setFixedWidth(THUMB_SIZE / 2)
         labelLike.setAlignment(Qt.AlignCenter)
         labelLike.setStyleSheet("QLabel { background-color : rgb(10, 155, 10); color : white; }")
-        labelLike.move(0, THUMBSIZE - labelLike.height())
+        labelLike.move(0, THUMB_SIZE - labelLike.height())
         labelLike.show()
 
         dislike_count = likesReformat(videoData['dislike_count'])
         labelDislike = QLabel(str(dislike_count), self)
-        labelDislike.setFixedWidth(THUMBSIZE / 2)
+        labelDislike.setFixedWidth(THUMB_SIZE / 2)
         labelDislike.setAlignment(Qt.AlignCenter)
         labelDislike.setStyleSheet("QLabel { background-color : rgb(155, 10, 10); color : white; }")
-        labelDislike.move(THUMBSIZE / 2, THUMBSIZE - labelDislike.height())
+        labelDislike.move(THUMB_SIZE / 2, THUMB_SIZE - labelDislike.height())
         labelDislike.show()
 
         if videoData['like_count'] > videoData['dislike_count']:
@@ -174,9 +173,9 @@ class Thumbnail(QWidget):
             labelDislike.setFont(font)
 
         labelDuration = QLabelS(self)
-        labelDuration.setFixedWidth(THUMBSIZE)
+        labelDuration.setFixedWidth(THUMB_SIZE)
         labelDuration.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        labelDuration.move(0, THUMBSIZE - labelDislike.height() - labelDuration.height())
+        labelDuration.move(0, THUMB_SIZE - labelDislike.height() - labelDuration.height())
         labelDuration.setStyleSheet("QLabel {color : white; font-size: 14px;}")
         labelDuration.show()
 
@@ -188,11 +187,11 @@ class Thumbnail(QWidget):
             labelDuration.setStyleSheet("QLabel {color : rgb(255, 30, 30); font-size: 14px;}")
             labelDuration.setText('LIVE')
 
-        self.totalThumbHeight = THUMBSIZE - (labelLike.height() * 2)
-        self.visibleThumbHeight = THUMBSIZE - (labelLike.height())
+        self.totalThumbHeight = THUMB_SIZE - (labelLike.height() * 2)
+        self.visibleThumbHeight = THUMB_SIZE - (labelLike.height())
 
         if thumbPix is None:
-            thumbPix = QPixmap(THUMBSIZE, THUMBSIZE)
+            thumbPix = QPixmap(THUMB_SIZE, THUMB_SIZE)
             thumbPix.fill(QColor(0, 70, 100, 125))
 
         self.pixmap = None
@@ -203,10 +202,10 @@ class Thumbnail(QWidget):
         if len(title) > 50:
             title = title[0:50] + '...'
         labelTitle = QLabel(title, self)
-        labelTitle.setFixedWidth(THUMBSIZE)
+        labelTitle.setFixedWidth(THUMB_SIZE)
         labelTitle.setWordWrap(True)
         labelTitle.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        labelTitle.move(0, THUMBSIZE - labelDislike.height() * 3)
+        labelTitle.move(0, THUMB_SIZE - labelDislike.height() * 3)
         labelTitle.hide()
         self.labelTitle = labelTitle
         self.labelLike = labelLike
@@ -214,12 +213,12 @@ class Thumbnail(QWidget):
         self.labelDuration = labelDuration
 
         desc = videoData['description']
-        if len(desc) > MAXDESCRIPTIONLEN * 2:
-            desc = desc[:MAXDESCRIPTIONLEN * 2] + '...'
+        if len(desc) > MAX_DESCRIPTION_LEN * 2:
+            desc = desc[:MAX_DESCRIPTION_LEN * 2] + '...'
         self.setToolTip(desc)
 
     def setThumbPixmap(self, newQpixmap):
-        self.pixmap = newQpixmap.scaled(QSize(THUMBSIZE, THUMBSIZE), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.pixmap = newQpixmap.scaled(QSize(THUMB_SIZE, THUMB_SIZE), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
     def switchData(self, state):
         if state == 0:
@@ -278,6 +277,7 @@ class PreviewWidget(QWidget):
     tabChanged = Signal(str)
     searchPropertiesCheckChanged = Signal(bool)
     searchIndexChanged = Signal(str, int)
+    sortingChanged = Signal()
 
     def __init__(self, iconAdd, iconTools, iconSearch):
         super(PreviewWidget, self).__init__(parent=None)
@@ -291,7 +291,8 @@ class PreviewWidget(QWidget):
         ta = toolbarSearches.addAction(iconAdd, 'New search', self._queryNewSearch)
         ta.setShortcut('Ctrl+S')
 
-        ta = toolbarSearches.addAction(iconTools, 'Configuration', lambda x: x)
+        ta = toolbarSearches.addAction(iconTools, 'Configuration',
+                                       lambda: QMessageBox.information(self, '', 'Not implemented'))
         ta.setShortcut('Ctrl+C')
 
         ta = toolbarSearches.addAction(iconSearch, 'Search properties')
@@ -304,7 +305,6 @@ class PreviewWidget(QWidget):
 
         g = QActionGroup(self, exclusive=True)
         g.triggered.connect(self.changeViewMode)
-        # self.groupViewMode = g
 
         actionListView = g.addAction(self.iconDetail, "List")
         actionListView.setCheckable(True)
@@ -327,6 +327,17 @@ class PreviewWidget(QWidget):
         self.actionViewModesMenu = actionViewModesMenu
         toolbarSearches.addAction(actionViewModesMenu)
 
+        comboSorting = QComboBox(toolbarSearches)
+        comboSorting.addItems([getattr(SortingEnum, i) for i in dir(SortingEnum) if not i.startswith('_')])
+        actionSorting = QWidgetAction(toolbarSearches)
+        actionSorting.setDefaultWidget(comboSorting)
+        toolbarSearches.addAction(actionSorting)
+        index = comboSorting.findText(SortingEnum.newest)
+        comboSorting.setCurrentIndex(index)
+        comboSorting.setEditable(False)
+        comboSorting.currentIndexChanged.connect(self.sortItems)
+        self.comboSorting = comboSorting
+
         tabWidget = QTabWidget()
         tabWidget.setObjectName('tabWidget')
         myTabBar = MyTabBar(tabWidget)
@@ -335,7 +346,7 @@ class PreviewWidget(QWidget):
         self.addEmptyTab()
         tabWidget.setMovable(True)
         tabWidget.setCornerWidget(toolbarSearches)
-        tabWidget.currentChanged.connect(self._currentChanged)
+        tabWidget.currentChanged.connect(self._currentTabChanged)
         tabWidget.tabCloseRequested.connect(self._tabClosing)
         tabWidget.tabBar().tabMoved.connect(self.tabsMoved)
 
@@ -361,6 +372,71 @@ class PreviewWidget(QWidget):
         self._isEmmitingCheckChanged = False
         self._onInitialPlacement = False
         self._isChangingVieModeFromButton = False
+        self.isSetupSorting = False
+
+    @Slot(int)
+    def sortItems(self, sortString=None):
+        if self.isSetupSorting:
+            return
+        if not isinstance(sortString, str):
+            sortString = self.comboSorting.currentText()
+
+        tabWidget = self.tabWidget
+        currentIndex = tabWidget.currentIndex()
+        listPreviews = tabWidget.widget(currentIndex)
+        search = listPreviews.search
+        self._doActualSorting(listPreviews, search, sortString)
+
+    def sortItemsFromSearch(self, search):
+        if self.isSetupSorting:
+            return
+
+        tabWidget = self.tabWidget
+        index = self.findTabIndexByWord(search.word)
+        listPreviews = tabWidget.widget(index)
+        self._doActualSorting(listPreviews, search, search.sorting)
+
+    def setSortingModeFromSearch(self, search):
+        mode = search.sorting
+        combo = self.comboSorting
+        index = combo.findText(mode)
+        self.isSetupSorting = True
+        combo.setCurrentIndex(index)
+        self.isSetupSorting = False
+
+    def _doActualSorting(self, listPreviews, search, sortString):
+        search.sorting = sortString
+        sortedResults = []
+        newDict = search.results
+        if len(newDict) == 1:
+            return
+        for key, val in newDict.items():
+            if sortString in (SortingEnum.newest, SortingEnum.oldest):
+                sortedResults.append((getDateObject(val['upload_date']), key))
+                if sortString == SortingEnum.oldest:
+                    sortedResults.sort(key=itemgetter(0))
+                else:
+                    sortedResults.sort(key=itemgetter(0), reverse=True)
+            elif sortString == SortingEnum.views:
+                sortedResults.append((val['view_count'], key))
+                sortedResults.sort(key=itemgetter(0), reverse=True)
+            elif sortString == SortingEnum.likes:
+                sortedResults.append((val['like_count'], key))
+                sortedResults.sort(key=itemgetter(0), reverse=True)
+            elif sortString == SortingEnum.lenght:
+                sortedResults.append((val['duration'], key))
+                sortedResults.sort(key=itemgetter(0), reverse=True)
+        word = search.word
+        form = self.parentWidget()
+        listPreviews.clear()
+        listPreviews.setUpdatesEnabled(False)
+        for sortKey, videoId in sortedResults:
+            videoInfo = newDict[videoId]
+            self.appendVideoItem(word, videoInfo, form.retrieveThumbnail(videoInfo['id']))
+            qApp.processEvents()
+
+        listPreviews.setUpdatesEnabled(True)
+        listPreviews.repaint()
 
     def markAsRead(self):
         listPreviews = self.tabWidget.widget(self.tabWidget.currentIndex())
@@ -406,7 +482,7 @@ class PreviewWidget(QWidget):
             self.newSearchRequested.emit(word)
 
     @Slot(int)
-    def _currentChanged(self, index):
+    def _currentTabChanged(self, index):
         word = self.tabWidget.tabText(index)
         if word != '':
             listPreviews = self.tabWidget.widget(index)
@@ -414,13 +490,14 @@ class PreviewWidget(QWidget):
             self.buttonMarkRead.setEnabled(not search.isRead)
             self.buttonClear.setEnabled(listPreviews.count())
             self.tabChanged.emit(word)
+            self.setSortingModeFromSearch(search)
 
     def updateSearchesIndexes(self):
         for index in range(self.tabWidget.count()):
             word = self.tabWidget.tabText(index)
             self.searchIndexChanged.emit(word, index)
 
-    def updateViewsViewMode(self, listWidget, viewMode):
+    def updateItemsViewMode(self, listWidget, viewMode):
         for i in range(listWidget.count()):
             item = listWidget.item(i)
             listWidget.itemWidget(item).setViewMode(viewMode)
@@ -430,22 +507,37 @@ class PreviewWidget(QWidget):
         listPreviews = self.tabWidget.widget(self.tabWidget.currentIndex())
         search = listPreviews.search
         self._isChangingVieModeFromButton = True
-        mode = search.mode
-        if mode == QListView.IconMode:
+        viewMode = search.viewMode
+        if viewMode == QListView.IconMode:
+            self.actionListView.setChecked(True)
+            viewMode = QListView.ListMode
+            self.actionViewModesMenu.setIcon(self.iconDetail)
+        else:
+            self.actionIconView.setChecked(True)
+            viewMode = QListView.IconMode
+            self.actionViewModesMenu.setIcon(self.iconIcon)
+
+        search.viewMode = viewMode
+        self._isChangingVieModeFromButton = False
+        listPreviews.setViewMode(viewMode)
+        self.updateItemsViewMode(listPreviews, viewMode)
+
+    def setViewModeFromSearch(self, search):
+        listPreviews = self.tabWidget.widget(self.findTabIndexByWord(search.word))
+        self._isChangingVieModeFromButton = True
+        viewMode = search.viewMode
+        if viewMode == QListView.IconMode:
             self.actionListView.setChecked(True)
             self.actionIconView.setChecked(False)
-            search.mode = QListView.ListMode
             self.actionViewModesMenu.setIcon(self.iconDetail)
         else:
             self.actionListView.setChecked(False)
             self.actionIconView.setChecked(True)
-            search.mode = QListView.IconMode
             self.actionViewModesMenu.setIcon(self.iconIcon)
 
-        mode = search.mode
         self._isChangingVieModeFromButton = False
-        listPreviews.setViewMode(mode)
-        self.updateViewsViewMode(listPreviews,mode)
+        listPreviews.setViewMode(viewMode)
+        self.updateItemsViewMode(listPreviews, viewMode)
 
     @Slot()
     def changeViewMode(self):
@@ -455,19 +547,19 @@ class PreviewWidget(QWidget):
         search = listPreviews.search
         if self.actionListView.isChecked():
             self.actionViewModesMenu.setIcon(self.iconDetail)
-            search.mode = QListView.ListMode
+            search.viewMode = QListView.ListMode
         else:
             self.actionViewModesMenu.setIcon(self.iconIcon)
-            search.mode = QListView.IconMode
-        mode = search.mode
+            search.viewMode = QListView.IconMode
+        mode = search.viewMode
         listPreviews.setViewMode(mode)
-        self.updateViewsViewMode(listPreviews, mode)
+        self.updateItemsViewMode(listPreviews, mode)
 
     @Slot(int)
     def _tabClosing(self, index):
         self.removeSearchRequested.emit(self.tabWidget.tabText(index))
 
-    def add(self, search, icon):
+    def addSearchTab(self, search, icon):
         if self._isEmpty:
             self.removeEmptyTab()
 
@@ -480,8 +572,9 @@ class PreviewWidget(QWidget):
         self.tabWidget.addTab(listPreviews, icon, search.word)
         search.index = self.tabWidget.count() - 1
         self.tabWidget.setCurrentIndex(search.index)
+        self.setViewModeFromSearch(search)
 
-    def remove(self, search):
+    def removeSearchTab(self, search):
         index = search.index
         self.tabWidget.removeTab(index)
         if self.tabWidget.count() == 0:
@@ -489,8 +582,10 @@ class PreviewWidget(QWidget):
         else:
             self.updateSearchesIndexes()
 
-    def updateSearch(self, word, data, thumbPix):
+    def appendVideoItem(self, word, data, thumbPix):
         index = self.findTabIndexByWord(word)
+        if index is None:
+            return
 
         if index == self.tabWidget.currentIndex():
             self.buttonMarkRead.setEnabled(True)
@@ -500,11 +595,11 @@ class PreviewWidget(QWidget):
         item.setSizeHint(QSize(200, 200))
 
         newVideoItem = VideoItem(data, self, thumbPix)
-        newVideoItem.setViewMode(listPreviews.search.mode)
+        newVideoItem.setViewMode(listPreviews.search.viewMode)
 
         listPreviews.addItem(item)
         listPreviews.setItemWidget(item, newVideoItem)
-        return newVideoItem
+        return newVideoItem, item
 
     def findTabIndexByWord(self, word):
         for index in range(self.tabWidget.count()):
@@ -519,8 +614,8 @@ class PreviewWidget(QWidget):
 
 class MyTabBar(QTabBar):
     def __init__(self, *args, **kwargs):
-        self.pixmap = QPixmap(path.join(iconPath, 'WAIS', 'Warning.png')).scaled(
-            QSize(16, 16), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.pixmap = QPixmap(path.join(iconPath, 'WAIS', 'Warning.png')).scaled(QSize(16, 16), Qt.KeepAspectRatio,
+                                                                                 Qt.SmoothTransformation)
         super(MyTabBar, self).__init__(*args, **kwargs)
 
     def paintEvent(self, *args, **kwargs):
@@ -544,3 +639,12 @@ class MyTabBar(QTabBar):
 
         painter.end()
 
+
+def getDateObject(rawDate):
+    year, month, day = (int(i) for i in (rawDate[:4], rawDate[4:6], rawDate[6:]))
+    return datetime.date(year, month, day)
+
+
+def setApp(app):
+    global qApp
+    qApp = app

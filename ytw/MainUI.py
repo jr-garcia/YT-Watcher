@@ -7,6 +7,7 @@ from os import listdir, mkdir, remove
 
 from .updateYT_DL import is_YTDL_importable, updateYTD
 from .ParallellSearcher import isRemoteError
+from .Listing import setApp
 
 CACHEFILEEXT = '.cache'
 
@@ -179,7 +180,7 @@ class MainWindow(QMainWindow):
         if path.exists(filePath):
             remove(filePath)
         search = self.searches.pop(word)
-        self.previewsWidget.remove(search)
+        self.previewsWidget.removeSearchTab(search)
         search.terminate()
 
     def createNewSearch(self, word, isPaused=False):
@@ -202,7 +203,7 @@ class MainWindow(QMainWindow):
         else:  # search.status == SearchStatesEnum.paused:
             icon = self.iconPaused
 
-        self.previewsWidget.add(search, icon)
+        self.previewsWidget.addSearchTab(search, icon)
 
         return search
 
@@ -215,18 +216,22 @@ class MainWindow(QMainWindow):
         if word not in self.searches.keys():
             return
 
+        thumbPix = self.retrieveThumbnail(videoID)
+
+        res = self.previewsWidget.appendVideoItem(word, result, thumbPix)
+        if res is None:
+            return
+        newVideoItem, item = res
+        self.newThumbReady.connect(newVideoItem.thumbArrived)
+        self.previewsWidget.sortItemsFromSearch(self.searches[word])
+
+    def retrieveThumbnail(self, videoID):
         if videoID in self.thumbsCache.keys():
-            thumbPix = self.retrieveThumbnail(videoID)
+            thumbPix = self.thumbnailPixmaps[videoID] = QPixmap(self.thumbsCache[videoID])
         else:
             thumbPix = None
 
-        newVideoItem = self.previewsWidget.updateSearch(word, result, thumbPix)
-        self.newThumbReady.connect(newVideoItem.thumbArrived)
-
-    def retrieveThumbnail(self, videoID):
-        if videoID not in self.thumbnailPixmaps.keys():
-            self.thumbnailPixmaps[videoID] = QPixmap(self.thumbsCache[videoID])
-        return self.thumbnailPixmaps[videoID]
+        return thumbPix
 
     def thumbReady(self, result):
         videoID, thumbPath = result
@@ -311,7 +316,8 @@ class MainWindow(QMainWindow):
                 remove(filePath)
             with open(filePath, 'w') as file:
                 searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s._unit,
-                                  'index'  : s.index, 'order': s.order, 'max': s.maxResults}
+                                  'index'  : s.index, 'searchMode': s.searchMode, 'max': s.maxResults,
+                                  'viewMode': s.viewMode.name.decode(), 'sorting': s.sorting}
                 dump(searchInitDict, file, indent=4)
 
     def loadSearches(self):
@@ -345,7 +351,11 @@ class MainWindow(QMainWindow):
                     search.excludeds = searchInitDict['excludeds']
                     search._unit = searchInitDict['unit']
                     search.maxResults = searchInitDict['max']
-                    search.order = searchInitDict['order']
+                    search.searchMode = searchInitDict['searchMode']
+                    search.viewMode = QListView.ViewMode.values[searchInitDict['viewMode']]
+                    search.sorting = searchInitDict['sorting']
+                    self.previewsWidget.setViewModeFromSearch(search)
+                    self.previewsWidget.setSortingModeFromSearch(search)
                     if not isPaused:
                         search.setReady()
                         search.forceSearchNow()
@@ -435,13 +445,13 @@ class SearchPropertiesWidget(QWidget):
         layoutForm.addRow(QLabel('Update every:'), layoutEvery)
 
         self._internalReordering = True
-        comboOrder = QComboBox()
-        comboOrder.addItems(['Relevance', 'Date'])
-        comboOrder.setCurrentIndex(1)
-        comboOrder.setEditable(False)
-        comboOrder.currentIndexChanged.connect(self.changedSorting)
-        self.comboOrder = comboOrder
-        layoutForm.addRow(QLabel('Mode:'), comboOrder)
+        comboSearchMode = QComboBox()
+        comboSearchMode.addItems(['Relevance', 'Date'])
+        comboSearchMode.setCurrentIndex(1)
+        comboSearchMode.setEditable(False)
+        comboSearchMode.currentIndexChanged.connect(self.changedSorting)
+        self.comboOrder = comboSearchMode
+        layoutForm.addRow(QLabel('Mode:'), comboSearchMode)
 
         spinboxMaxResults = QSpinBox()
         spinboxMaxResults.setValue(50)
@@ -468,7 +478,7 @@ class SearchPropertiesWidget(QWidget):
         if self._internalReordering:
             return
 
-        self.search.order = self.comboOrder.currentIndex()
+        self.search.searchMode = self.comboOrder.currentIndex()
         self.searchSortingChanged.emit()
         if self.search.status != SearchStatesEnum.paused:
             self.search.forceSearchNow()
@@ -520,7 +530,7 @@ class SearchPropertiesWidget(QWidget):
         self.spinboxRefreshTime.setValue(seconds)
 
         self._internalReordering = True
-        self.comboOrder.setCurrentIndex(search.order)
+        self.comboOrder.setCurrentIndex(search.searchMode)
         self.spinboxMaxResults.setValue(search.maxResults)
         self._internalReordering = False
 
@@ -562,6 +572,7 @@ class SearchPropertiesWidget(QWidget):
 def _runMainWindow():
     if not RESTARTREQUIRED:
         app = QApplication('')
+    setApp(app)
     mainWin = MainWindow()
     app.exec_()
     if RESTARTREQUIRED:
