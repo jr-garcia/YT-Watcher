@@ -213,17 +213,18 @@ class MainWindow(QMainWindow):
             self.dumpVideoInfo(videoID, result)
             self.videoInfosCache[videoID] = result
 
-        if word not in self.searches.keys():
+        search = self.searches.get(word)
+        if search is None:
             return
 
         thumbPix = self.retrieveThumbnail(videoID)
 
-        res = self.previewsWidget.appendVideoItem(word, result, thumbPix)
+        res = self.previewsWidget.appendVideoItem(search, result, thumbPix)
         if res is None:
             return
         newVideoItem, item = res
         self.newThumbReady.connect(newVideoItem.thumbArrived)
-        self.previewsWidget.sortItemsFromSearch(self.searches[word])
+        # self.previewsWidget.sortItemsFromSearch(self.searches[word])
 
     def retrieveThumbnail(self, videoID):
         if videoID in self.thumbsCache.keys():

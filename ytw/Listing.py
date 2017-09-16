@@ -374,18 +374,18 @@ class PreviewWidget(QWidget):
         self._isChangingVieModeFromButton = False
         self.isSetupSorting = False
 
-    @Slot(int)
-    def sortItems(self, sortString=None):
+    @Slot()
+    def sortItems(self):
         if self.isSetupSorting:
             return
-        if not isinstance(sortString, str):
-            sortString = self.comboSorting.currentText()
+        sortString = self.comboSorting.currentText()
 
         tabWidget = self.tabWidget
         currentIndex = tabWidget.currentIndex()
         listPreviews = tabWidget.widget(currentIndex)
         search = listPreviews.search
-        self._doActualSorting(listPreviews, search, sortString)
+        search.sorting = sortString
+        self._doActualSorting(listPreviews, search)
 
     def sortItemsFromSearch(self, search):
         if self.isSetupSorting:
@@ -394,49 +394,52 @@ class PreviewWidget(QWidget):
         tabWidget = self.tabWidget
         index = self.findTabIndexByWord(search.word)
         listPreviews = tabWidget.widget(index)
-        self._doActualSorting(listPreviews, search, search.sorting)
+        self._doActualSorting(listPreviews, search)
 
     def setSortingModeFromSearch(self, search):
-        mode = search.sorting
+        sortString = search.sorting
         combo = self.comboSorting
-        index = combo.findText(mode)
+        index = combo.findText(sortString)
         self.isSetupSorting = True
         combo.setCurrentIndex(index)
         self.isSetupSorting = False
 
-    def _doActualSorting(self, listPreviews, search, sortString):
-        search.sorting = sortString
-        sortedResults = []
-        newDict = search.results
-        if len(newDict) == 1:
+    def _doActualSorting(self, listPreviews, search):
+        results = search.results
+        sortString = search.sorting
+        if len(results) == 1:
             return
-        for key, val in newDict.items():
-            if sortString in (SortingEnum.newest, SortingEnum.oldest):
-                sortedResults.append((getDateObject(val['upload_date']), key))
-                if sortString == SortingEnum.oldest:
-                    sortedResults.sort(key=itemgetter(0))
-                else:
-                    sortedResults.sort(key=itemgetter(0), reverse=True)
-            elif sortString == SortingEnum.views:
-                sortedResults.append((val['view_count'], key))
-                sortedResults.sort(key=itemgetter(0), reverse=True)
-            elif sortString == SortingEnum.likes:
-                sortedResults.append((val['like_count'], key))
-                sortedResults.sort(key=itemgetter(0), reverse=True)
-            elif sortString == SortingEnum.lenght:
-                sortedResults.append((val['duration'], key))
-                sortedResults.sort(key=itemgetter(0), reverse=True)
-        word = search.word
+        sortedResults = self._getSortedItemPlaces(results, sortString)
         form = self.parentWidget()
         listPreviews.clear()
         listPreviews.setUpdatesEnabled(False)
         for sortKey, videoId in sortedResults:
-            videoInfo = newDict[videoId]
-            self.appendVideoItem(word, videoInfo, form.retrieveThumbnail(videoInfo['id']))
+            videoInfo = results[videoId]
+            self.appendVideoItem(search, videoInfo, form.retrieveThumbnail(videoInfo['id']))
             qApp.processEvents()
 
         listPreviews.setUpdatesEnabled(True)
         listPreviews.repaint()
+
+    def _getSortedItemPlaces(self, results, sortString):
+        sortedResults = []
+        for key, val in results.items():
+            if sortString in (SortingEnum.newest, SortingEnum.oldest):
+                sortedResults.append((getDateObject(val['upload_date']), key))
+            elif sortString == SortingEnum.views:
+                sortedResults.append((val['view_count'], key))
+                # sortedResults.sort(key=itemgetter(0), reverse=True)
+            elif sortString == SortingEnum.likes:
+                sortedResults.append((val['like_count'], key))
+                # sortedResults.sort(key=itemgetter(0), reverse=True)
+            elif sortString == SortingEnum.lenght:
+                sortedResults.append((val['duration'], key))
+                # sortedResults.sort(key=itemgetter(0), reverse=True)
+        if sortString == SortingEnum.oldest:
+            sortedResults.sort(key=itemgetter(0))
+        else:
+            sortedResults.sort(key=itemgetter(0), reverse=True)
+        return sortedResults
 
     def markAsRead(self):
         listPreviews = self.tabWidget.widget(self.tabWidget.currentIndex())
@@ -582,22 +585,39 @@ class PreviewWidget(QWidget):
         else:
             self.updateSearchesIndexes()
 
-    def appendVideoItem(self, word, data, thumbPix):
+    def appendVideoItem(self, search, data, thumbPix):
+        sortString = search.sorting
+        results = search.results
+        if len(results) == 1:
+            place = -1
+        else:
+            place = 0
+            videoID = data['id']
+            sortedResults = self._getSortedItemPlaces(results, sortString)
+            for i in range(len(sortedResults)):
+                key, sortedVideoID = sortedResults[i]
+                if videoID == sortedVideoID:
+                    place = i
+                    break
+
+        return self.insertVideoItem(data, thumbPix, search.word, place)
+
+    def insertVideoItem(self, data, thumbPix, word, place):
         index = self.findTabIndexByWord(word)
         if index is None:
             return
-
         if index == self.tabWidget.currentIndex():
             self.buttonMarkRead.setEnabled(True)
             self.buttonClear.setEnabled(True)
         listPreviews = self.tabWidget.widget(index)
         item = QListWidgetItem('')
-        item.setSizeHint(QSize(200, 200))
-
+        item.setSizeHint(QSize(200, 200))  # todo: make thumb size modifiable from mainUI
         newVideoItem = VideoItem(data, self, thumbPix)
         newVideoItem.setViewMode(listPreviews.search.viewMode)
-
-        listPreviews.addItem(item)
+        if place == -1:
+            listPreviews.addItem(item)
+        else:
+            listPreviews.insertItem(place, item)
         listPreviews.setItemWidget(item, newVideoItem)
         return newVideoItem, item
 
