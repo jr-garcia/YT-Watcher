@@ -358,11 +358,17 @@ class PreviewWidget(QWidget):
         buttonClear.clicked.connect(self.clearList)
         buttonClear.setEnabled(False)
         self.buttonClear = buttonClear
-        buttonMarkRead = QPushButton(QIcon(path.join(faiPath, 'Apply_modified.png')), 'Mark as read')
+        buttonForceSearchNow = QPushButton(QIcon(path.join(faiPath, 'Apply_modified.png')), 'Search now')
+        buttonForceSearchNow.clicked.connect(self.forceSearchNow)
+        buttonForceSearchNow.setEnabled(False)
+        self.buttonForceSearchNow = buttonForceSearchNow
+        buttonMarkRead = QPushButton(QIcon(path.join(brightPath, 'search_find.png')), 'Mark as read')
         buttonMarkRead.clicked.connect(self.markAsRead)
         buttonMarkRead.setEnabled(False)
         self.buttonMarkRead = buttonMarkRead
         layoutBottom.addWidget(buttonMarkRead)
+        layoutBottom.addStretch()
+        layoutBottom.addWidget(buttonForceSearchNow)
         layoutBottom.addStretch()
         layoutBottom.addWidget(buttonClear)
 
@@ -375,6 +381,13 @@ class PreviewWidget(QWidget):
         self._onInitialPlacement = False
         self._isChangingVieModeFromButton = False
         self.isSetupSorting = False
+
+    @Slot()
+    def forceSearchNow(self):
+        tabWidget = self.tabWidget
+        listPreviews = tabWidget.widget(tabWidget.currentIndex())
+        search = listPreviews.search
+        search.forceSearchNow()
 
     @Slot()
     def sortItems(self):
@@ -497,6 +510,7 @@ class PreviewWidget(QWidget):
         try:
             self.buttonClear.setEnabled(state)
             self.buttonMarkRead.setEnabled(state)
+            self.buttonForceSearchNow.setEnabled(state)
         except AttributeError:
             pass
 
