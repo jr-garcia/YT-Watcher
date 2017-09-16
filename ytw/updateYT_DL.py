@@ -22,17 +22,25 @@ def updateYTD(noCheck=False, showMessage=True, useYield=False):
     With info from https://stackoverflow.com/a/26454035
     """
     from .youtube_dl import version
+    from datetime import date
+    global CHECKED
     try:
-        global CHECKED
         if CHECKED:
-            return
+            if useYield:
+                yield False
+            else:
+                return
         CHECKED = True
         data = download('https://api.github.com/repos/rg3/youtube-dl/releases/latest')
         parsedData = loads(data.decode('utf-8'))
 
         remoteVersion = parsedData['tag_name']
+        year, month, day = [int(d) for d in remoteVersion.split('.')]
+        remoteDate = date(year, month, day)
         localVersion = version.__version__
-        isNewVersion = remoteVersion > localVersion
+        year, month, day = [int(d) for d in localVersion.split('.')]
+        localDate = date(year, month, day)
+        isNewVersion = remoteDate > localDate
         if useYield:
             yield isNewVersion
 

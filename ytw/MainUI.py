@@ -221,7 +221,6 @@ class MainWindow(QMainWindow):
             return
         newVideoItem, item = res
         self.newThumbReady.connect(newVideoItem.thumbArrived)
-        # self.previewsWidget.sortItemsFromSearch(self.searches[word])
 
     def retrieveThumbnail(self, videoID):
         if videoID in self.thumbsCache.keys():
@@ -357,6 +356,7 @@ class MainWindow(QMainWindow):
                     if not isPaused:
                         search.setReady()
                         search.forceSearchNow()
+                    self.searchBox.refresh(search)
 
     def loadThumbsCache(self):
         self.createFolderIfAbscent(cachedThumbsPath)
@@ -568,11 +568,13 @@ class SearchPropertiesWidget(QWidget):
         self.hide()
 
 
-def _runMainWindow():
+def runMainWindow():
     if not RESTARTREQUIRED:
         app = QApplication('')
+    else:
+        app = qApp
     setApp(app)
     mainWin = MainWindow()
     app.exec_()
     if RESTARTREQUIRED:
-        _runMainWindow()
+        runMainWindow()

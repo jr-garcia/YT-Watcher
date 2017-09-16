@@ -42,7 +42,8 @@ class Search(QObject):
         self.index = -1
         self._miliseconds = 2 * 60 * 1000
         self.baseCallback = baseCallback
-        self.results = {}
+        self.currentResults = {}
+        self.allResults = {}
         self.timer = QTimer(self)
         self.timer.stop()
         self.timer.timeout.connect(self._performSearch)
@@ -142,7 +143,7 @@ class Search(QObject):
 
             for video in result['entries']:
                 videoID = video['id']
-                if videoID in self.results.keys():
+                if videoID in self.allResults.keys():
                     continue
                 cachedVideoResult = self.videoInfosCache.get(videoID)
                 if cachedVideoResult is None:
@@ -154,7 +155,8 @@ class Search(QObject):
             if self._lastFoundCount == 0:
                 self.setReady()
             videoID = result['id']
-            self.results[videoID] = result
+            self.currentResults[videoID] = result
+            self.allResults[videoID] = result
             if videoID not in self.thumbsCache.keys():
                 thumbURL = result['thumbnail']
                 self.pool.appendTask(self.task((thumbURL, videoID), TaskTypesEnum.thumb), self._resultsCallback)
@@ -311,7 +313,7 @@ class Pool(QObject):
                 else:
                     self._available.append(ID)
                     self.callbacks[ID](result)
-            except Empty:
+            except (Empty, OSError):
                 pass
             except Exception as ex:
                 self.terminate()

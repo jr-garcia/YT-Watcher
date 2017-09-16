@@ -420,7 +420,7 @@ class PreviewWidget(QWidget):
         self.isSetupSorting = False
 
     def _doActualSorting(self, listPreviews, search):
-        results = search.results
+        results = search.currentResults
         sortString = search.sorting
         if len(results) == 1:
             return
@@ -466,7 +466,7 @@ class PreviewWidget(QWidget):
         listPreviews = tabWidget.widget(tabWidget.currentIndex())
         listPreviews.clear()
         search = listPreviews.search
-        search.results.clear()
+        search.currentResults.clear()
         self.markAsRead(listPreviews)
         self.buttonClear.setEnabled(False)
 
@@ -491,7 +491,7 @@ class PreviewWidget(QWidget):
         self._isEmmitingCheckChanged = False
 
     def addEmptyTab(self):
-        self._isEmpty = False
+        self._isEmpty = True
         tabWidget = self.tabWidget
         tabWidget.setTabsClosable(False)
         tabWidget.addTab(QWidget(), '[no searches]')
@@ -626,7 +626,7 @@ class PreviewWidget(QWidget):
 
     def appendVideoItem(self, search, data, thumbPix):
         sortString = search.sorting
-        results = search.results
+        results = search.currentResults
         if len(results) == 1:
             place = -1
         else:

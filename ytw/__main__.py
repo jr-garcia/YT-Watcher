@@ -1,4 +1,4 @@
-from ytw.MainUI import _runMainWindow
+from ytw.MainUI import runMainWindow
 
 if __name__ == '__main__':
-    _runMainWindow()
+    runMainWindow()
