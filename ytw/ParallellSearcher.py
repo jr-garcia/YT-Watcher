@@ -127,7 +127,7 @@ class Searcher(Process):
                         retries = 0
                     except Empty:
                         pass
-                    except:
+                    except Exception:
                         self._isRunning = False
 
                 if data is None:
@@ -160,16 +160,16 @@ class Searcher(Process):
                             remoteRaise(self.local)
                         else:
                             sleep(1)
-                    except:
+                    except Exception:
                         remoteRaise(self.local)
                         self.terminate()
                         raise
 
-            except:
+            except Exception:
                 self._isRunning = False
                 try:
                     self.local.put_nowait(RemoteError(format_exc(), ErrorTypesEnum.Other))
-                except:
+                except Exception:
                     pass
                 remoteRaise(self.local)
                 self.terminate()
@@ -206,7 +206,7 @@ def remoteRaise(queue):
         errorType = ErrorTypesEnum.Other
         data = str(instance)
     queue.put_nowait(TaskResult((data, errorType), TaskTypesEnum.error))
-    
+
 
 def isRemoteError(result):
     return isinstance(result, NonValidDataError) or issubclass(type(result), YoutubeDL)

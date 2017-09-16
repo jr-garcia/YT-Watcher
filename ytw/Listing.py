@@ -1,13 +1,12 @@
-from PySide.QtGui import *
-from PySide.QtCore import Qt, Slot, QPoint, QRect, QSize, Signal
 import datetime
-from os import path
 import webbrowser
 from operator import itemgetter
 
-from ._paths import *
-from .Searching import SortingEnum
+from PySide.QtCore import QRect, QSize, Qt, Signal, Slot
+from PySide.QtGui import *
 
+from .Searching import SortingEnum
+from ._paths import *
 
 DEFAULT_DATE = '19800101'
 MAX_DESCRIPTION_LEN = 400
@@ -288,7 +287,7 @@ class PreviewWidget(QWidget):
         toolbarSearches = QToolBar()
         toolbarSearches.setObjectName('toolbarSearches')
         self.toolbarSearches = toolbarSearches
-        ta = toolbarSearches.addAction(iconAdd, 'New search', self._queryNewSearch)
+        ta = toolbarSearches.addAction(iconAdd, 'New search', self.queryNewSearch)
         ta.setShortcut('Ctrl+S')
 
         ta = toolbarSearches.addAction(iconTools, 'Configuration',
@@ -332,6 +331,7 @@ class PreviewWidget(QWidget):
         actionSorting = QWidgetAction(toolbarSearches)
         actionSorting.setDefaultWidget(comboSorting)
         toolbarSearches.addAction(actionSorting)
+        self.actionSorting = actionSorting
         index = comboSorting.findText(SortingEnum.newest)
         comboSorting.setCurrentIndex(index)
         comboSorting.setEditable(False)
@@ -356,9 +356,11 @@ class PreviewWidget(QWidget):
         layoutBottom = QHBoxLayout()
         buttonClear = QPushButton(QIcon(path.join(discoveryPath, 'clear.png')), 'Clear results')
         buttonClear.clicked.connect(self.clearList)
+        buttonClear.setEnabled(False)
         self.buttonClear = buttonClear
         buttonMarkRead = QPushButton(QIcon(path.join(faiPath, 'Apply_modified.png')), 'Mark as read')
         buttonMarkRead.clicked.connect(self.markAsRead)
+        buttonMarkRead.setEnabled(False)
         self.buttonMarkRead = buttonMarkRead
         layoutBottom.addWidget(buttonMarkRead)
         layoutBottom.addStretch()
@@ -428,34 +430,41 @@ class PreviewWidget(QWidget):
                 sortedResults.append((getDateObject(val['upload_date']), key))
             elif sortString == SortingEnum.views:
                 sortedResults.append((val['view_count'], key))
-                # sortedResults.sort(key=itemgetter(0), reverse=True)
             elif sortString == SortingEnum.likes:
                 sortedResults.append((val['like_count'], key))
-                # sortedResults.sort(key=itemgetter(0), reverse=True)
             elif sortString == SortingEnum.lenght:
                 sortedResults.append((val['duration'], key))
-                # sortedResults.sort(key=itemgetter(0), reverse=True)
         if sortString == SortingEnum.oldest:
             sortedResults.sort(key=itemgetter(0))
         else:
             sortedResults.sort(key=itemgetter(0), reverse=True)
         return sortedResults
 
-    def markAsRead(self):
-        listPreviews = self.tabWidget.widget(self.tabWidget.currentIndex())
+    def markAsRead(self, listPreviews=None):
+        if listPreviews is None:
+            tabWidget = self.tabWidget
+            listPreviews = tabWidget.widget(tabWidget.currentIndex())
         search = listPreviews.search
         search.isRead = True
         self.buttonMarkRead.setEnabled(False)
 
     def clearList(self):
-        self.markAsRead()
-        self.tabWidget.widget(self.tabWidget.currentIndex()).clear()
+        tabWidget = self.tabWidget
+        listPreviews = tabWidget.widget(tabWidget.currentIndex())
+        listPreviews.clear()
+        search = listPreviews.search
+        search.results.clear()
+        self.markAsRead(listPreviews)
         self.buttonClear.setEnabled(False)
 
     def clear(self):
-        while self.tabWidget.count() > 0:
-            self.tabWidget.widget(0).clear()
-            self.tabWidget.removeTab(0)
+        tabWidget = self.tabWidget
+        while tabWidget.count() > 0:
+            try:
+                tabWidget.widget(0).clear()
+            except Exception:
+                pass
+            tabWidget.removeTab(0)
 
     def tabsMoved(self):
         if not self._onInitialPlacement:
@@ -470,15 +479,28 @@ class PreviewWidget(QWidget):
 
     def addEmptyTab(self):
         self._isEmpty = False
-        self.tabWidget.setTabsClosable(False)
-        self.tabWidget.addTab(QWidget(), '[no searches]')
+        tabWidget = self.tabWidget
+        tabWidget.setTabsClosable(False)
+        tabWidget.addTab(QWidget(), '[no searches]')
+        self.setSearchRelatedToolsEnabled(False)
 
     def removeEmptyTab(self):
         self._isEmpty = False
-        self.tabWidget.removeTab(0)
-        self.tabWidget.setTabsClosable(True)
+        tabWidget = self.tabWidget
+        tabWidget.removeTab(0)
+        tabWidget.setTabsClosable(True)
+        self.setSearchRelatedToolsEnabled(True)
 
-    def _queryNewSearch(self):
+    def setSearchRelatedToolsEnabled(self, state):
+        self.actionViewModesMenu.setEnabled(state)
+        self.actionSorting.setEnabled(state)
+        try:
+            self.buttonClear.setEnabled(state)
+            self.buttonMarkRead.setEnabled(state)
+        except AttributeError:
+            pass
+
+    def queryNewSearch(self):
         suggested = 'cat' if self._isEmpty else ''
         word, ret = QInputDialog.getText(self, 'New search', 'Enter word to search for:', QLineEdit.Normal, suggested)
         if ret and word != '':
@@ -489,7 +511,10 @@ class PreviewWidget(QWidget):
         word = self.tabWidget.tabText(index)
         if word != '':
             listPreviews = self.tabWidget.widget(index)
-            search = listPreviews.search
+            try:
+                search = listPreviews.search
+            except AttributeError:
+                return
             self.buttonMarkRead.setEnabled(not search.isRead)
             self.buttonClear.setEnabled(listPreviews.count())
             self.tabChanged.emit(word)
@@ -531,10 +556,10 @@ class PreviewWidget(QWidget):
         viewMode = search.viewMode
         if viewMode == QListView.IconMode:
             self.actionListView.setChecked(True)
-            self.actionIconView.setChecked(False)
+            # self.actionIconView.setChecked(False)
             self.actionViewModesMenu.setIcon(self.iconDetail)
         else:
-            self.actionListView.setChecked(False)
+            # self.actionListView.setChecked(False)
             self.actionIconView.setChecked(True)
             self.actionViewModesMenu.setIcon(self.iconIcon)
 
@@ -572,15 +597,17 @@ class PreviewWidget(QWidget):
         listPreviews.setMovement(QListView.Static)
         listPreviews.setObjectName(search.word)
         listPreviews.itemDoubleClicked.connect(self.openVideoInBrowser)
-        self.tabWidget.addTab(listPreviews, icon, search.word)
-        search.index = self.tabWidget.count() - 1
-        self.tabWidget.setCurrentIndex(search.index)
+        tabWidget = self.tabWidget
+        tabWidget.addTab(listPreviews, icon, search.word)
+        search.index = tabWidget.count() - 1
+        tabWidget.setCurrentIndex(search.index)
         self.setViewModeFromSearch(search)
 
     def removeSearchTab(self, search):
         index = search.index
-        self.tabWidget.removeTab(index)
-        if self.tabWidget.count() == 0:
+        tabWidget = self.tabWidget
+        tabWidget.removeTab(index)
+        if tabWidget.count() == 0:
             self.addEmptyTab()
         else:
             self.updateSearchesIndexes()
@@ -649,7 +676,10 @@ class MyTabBar(QTabBar):
 
         for index in range(self.count()):
             listPreviews = tabWidget.widget(index)
-            search = listPreviews.search
+            try:
+                search = listPreviews.search
+            except AttributeError:
+                continue
             if search.isRead:
                 continue
             oldrect = self.tabRect(index)

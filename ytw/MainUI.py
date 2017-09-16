@@ -1,13 +1,10 @@
 from __future__ import print_function
 
-import sys
 from json import dump, load
 from multiprocessing import TimeoutError as PoolTimeOutError
 from os import listdir, mkdir, remove
 
 from .updateYT_DL import is_YTDL_importable, updateYTD
-from .ParallellSearcher import isRemoteError
-from .Listing import setApp
 
 CACHEFILEEXT = '.cache'
 
@@ -84,7 +81,7 @@ class MainWindow(QMainWindow):
         # updateYTD()
 
         if len(self.searches.items()) == 0:
-            self.previewsWidget._queryNewSearch()
+            self.previewsWidget.queryNewSearch()
 
     def searchPropertiesBoxCheckedChanged(self, isVisible):
         if self._isChangedFromAction:
@@ -316,7 +313,7 @@ class MainWindow(QMainWindow):
             if path.exists(filePath):
                 remove(filePath)
             with open(filePath, 'w') as file:
-                searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s._unit,
+                searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s.unit,
                                   'index'  : s.index, 'searchMode': s.searchMode, 'max': s.maxResults,
                                   'viewMode': s.viewMode.name.decode(), 'sorting': s.sorting}
                 dump(searchInitDict, file, indent=4)
@@ -350,7 +347,7 @@ class MainWindow(QMainWindow):
                     search = self.createNewSearch(word, True)
                     search.seconds = searchInitDict['seconds']
                     search.excludeds = searchInitDict['excludeds']
-                    search._unit = searchInitDict['unit']
+                    search.unit = searchInitDict['unit']
                     search.maxResults = searchInitDict['max']
                     search.searchMode = searchInitDict['searchMode']
                     search.viewMode = QListView.ViewMode.values[searchInitDict['viewMode']]
@@ -519,10 +516,10 @@ class SearchPropertiesWidget(QWidget):
         seconds = search.seconds
         index = 0
 
-        if search._unit == 'minutes':
+        if search.unit == 'minutes':
             index = 1
             seconds /= 60
-        elif search._unit == 'hours':
+        elif search.unit == 'hours':
             index = 2
             seconds /= 60
             seconds /= 60
@@ -553,8 +550,8 @@ class SearchPropertiesWidget(QWidget):
             self.search.excludeds = []
 
     def updateTimeChanged(self):
-        self.search._unit = self.comboEveryUnit.currentText().lower()
-        if self.search._unit == 'seconds':
+        self.search.unit = self.comboEveryUnit.currentText().lower()
+        if self.search.unit == 'seconds':
             minval = 10
         else:
             minval = 1

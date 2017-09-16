@@ -4,7 +4,7 @@ from queue import Empty, Full
 from PySide.QtCore import QObject, QTimer, Signal
 from PySide.QtGui import *
 
-from .ParallellSearcher import Searcher, NonValidDataError, TaskTypesEnum, ErrorTypesEnum, RemoteError, TaskResult
+from .ParallellSearcher import ErrorTypesEnum, RemoteError, Searcher, TaskResult, TaskTypesEnum
 # from .youtube_dl.utils import *
 from .updateYT_DL import updateYTD
 
@@ -16,10 +16,10 @@ class SearchStatesEnum(object):
 
 
 class SortingEnum(object):
-    newest = 'Newest'
-    oldest = 'Oldest'
     views = 'Views'
     likes = 'Likes'
+    newest = 'Newest'
+    oldest = 'Oldest'
     lenght = 'Lenght'
 
 
@@ -47,7 +47,7 @@ class Search(QObject):
         self.timer.stop()
         self.timer.timeout.connect(self._performSearch)
 
-        self._unit = 'minutes'
+        self.unit = 'minutes'
         self._lastFoundCount = 0
 
         self._isFirstRun = True
