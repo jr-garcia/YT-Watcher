@@ -554,12 +554,10 @@ class PreviewWidget(QWidget):
         listPreviews = self.tabWidget.widget(self.findTabIndexByWord(search.word))
         self._isChangingVieModeFromButton = True
         viewMode = search.viewMode
-        if viewMode == QListView.IconMode:
+        if viewMode == QListView.ListMode:
             self.actionListView.setChecked(True)
-            # self.actionIconView.setChecked(False)
             self.actionViewModesMenu.setIcon(self.iconDetail)
         else:
-            # self.actionListView.setChecked(False)
             self.actionIconView.setChecked(True)
             self.actionViewModesMenu.setIcon(self.iconIcon)
 

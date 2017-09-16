@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
             fpath = path.join(searchesPath, fileName)
             word, ext = path.splitext(fileName)
             word = word[1:]
-            with open(fpath, 'r') as info:
+            with open(fpath) as info:
                 searchInitDict = load(info)
                 index = searchInitDict['index']
                 if index > lastIndex:
@@ -499,12 +499,13 @@ class SearchPropertiesWidget(QWidget):
         self.radioPaused.setIcon(iconPaused)
 
     def refresh(self, search):
-        self.wordChanged.emit(search.word)
-        self.editWord.setText(search.word)
+        word = search.word
+        self.wordChanged.emit(word)
+        self.editWord.setText(word)
         self._onRefresh = True
         self.search = search
 
-        self.setWindowTitle(search.word.upper())
+        self.setWindowTitle(word.upper())
 
         if search.status == SearchStatesEnum.readyToSearch:
             self.radioStarted.setChecked(True)
