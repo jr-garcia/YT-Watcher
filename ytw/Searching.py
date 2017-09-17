@@ -152,7 +152,7 @@ class Search(QObject):
                     self._resultsCallback(TaskResult(cachedVideoResult, TaskTypesEnum.video))
         elif taskType == TaskTypesEnum.video:
             self._lastFoundCount -= 1
-            if self._lastFoundCount == 0:
+            if self._lastFoundCount >= 0:
                 self.setReady()
             videoID = result['id']
             self.currentResults[videoID] = result

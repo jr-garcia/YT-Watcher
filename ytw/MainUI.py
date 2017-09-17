@@ -54,17 +54,23 @@ class MainWindow(QMainWindow):
         self.iconAdd = QIcon(path.join(brightPath, 'plus_green.png'))
         self.iconTools = QIcon(path.join(brightPath, 'tools.png'))
         self.movieSearch.updated.connect(self.updateLoadingIcon)
+        self.iconApp = QIcon(path.join(iconPath, 'logo.png'))
+        self.iconExit = QIcon(path.join(brightPath, 'EDITED_multiply_red.png'))
 
         self._isChangedFromAction = False
         self.setWindowTitle('YT Watcher')
         self.setMinimumSize(QSize(700, 400))
 
+        self.setWindowIcon(self.iconApp)
+
+        self.addTrayIcon()
+
         self.addWidgets()
         # self.statusBar().showMessage('Ready')
         self.resize(QSize(800, 600))
-        self.setWindowIcon(QIcon(path.join(iconPath, 'logo.png')))
         self.center()
         self.searches = {}
+        self.lastArrivedWordResults = ''
 
         self.movieSearch.start()  # todo: start at first item addition
 
@@ -82,6 +88,38 @@ class MainWindow(QMainWindow):
 
         if len(self.searches.items()) == 0:
             self.previewsWidget.queryNewSearch()
+
+    def addTrayIcon(self):
+        trayMenu = QMenu(self)
+        actions = ['Show', '--', QAction(self.iconExit, 'Exit', self)]
+        for i in range(len(actions)):
+            a = actions[i]
+            if a == '--':
+                trayMenu.addSeparator()
+            else:
+                act = trayMenu.addAction(a)
+                if i == 0:
+                    trayMenu.setDefaultAction(act)
+                    
+        trayMenu.triggered.connect(self.trayMenuClicked)
+        self.trayMenu = trayMenu
+
+        trayIcon = QSystemTrayIcon(self.iconApp, self)
+        trayIcon.setContextMenu(trayMenu)
+        trayIcon.messageClicked.connect(self.trayMessageClicked)
+        trayIcon.setToolTip(self.windowTitle())
+        trayIcon.show()
+        self.trayIcon = trayIcon
+
+    def trayMessageClicked(self):
+        self.show()
+        self.previewsWidget.switchToTab(self.lastArrivedWordResults)
+
+    def trayMenuClicked(self, action):
+        if action == self.trayMenu.defaultAction():
+            self.setVisible(not self.isVisible())
+        else:
+            self.close()
 
     def searchPropertiesBoxCheckedChanged(self, isVisible):
         if self._isChangedFromAction:
@@ -215,6 +253,8 @@ class MainWindow(QMainWindow):
             return
 
         thumbPix = self.retrieveThumbnail(videoID)
+        self.lastArrivedWordResults = word
+        self.trayIcon.showMessage('New data', 'New data arrived for \'{}\''.format(word), millisecondsTimeoutHint=5000)
 
         res = self.previewsWidget.appendVideoItem(search, result, thumbPix)
         if res is None:
@@ -301,7 +341,7 @@ class MainWindow(QMainWindow):
             fpath = path.join(cachedInfosPath, fileName)
             videoID, ext = path.splitext(fileName)
             videoID = videoID[1:]
-            with open(fpath, 'r') as info:
+            with open(fpath) as info:
                 infoDict = load(info)
             self.videoInfosCache[videoID] = infoDict
 
@@ -312,8 +352,8 @@ class MainWindow(QMainWindow):
             if path.exists(filePath):
                 remove(filePath)
             with open(filePath, 'w') as file:
-                searchInitDict = {'seconds': s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s.unit,
-                                  'index'  : s.index, 'searchMode': s.searchMode, 'max': s.maxResults,
+                searchInitDict = {'seconds' : s.seconds, 'status': s.status, 'excludeds': s.excludeds, 'unit': s.unit,
+                                  'index'   : s.index, 'searchMode': s.searchMode, 'max': s.maxResults,
                                   'viewMode': s.viewMode.name.decode(), 'sorting': s.sorting}
                 dump(searchInitDict, file, indent=4)
 

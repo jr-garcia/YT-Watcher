@@ -533,6 +533,7 @@ class PreviewWidget(QWidget):
             self.buttonClear.setEnabled(listPreviews.count())
             self.tabChanged.emit(word)
             self.setSortingModeFromSearch(search)
+            self.setViewModeFromSearch(search)
 
     def updateSearchesIndexes(self):
         for index in range(self.tabWidget.count()):
@@ -665,6 +666,10 @@ class PreviewWidget(QWidget):
             text = self.tabWidget.tabText(index)
             if text == word:
                 return index
+
+    def switchToTab(self, word):
+        index = self.findTabIndexByWord(word)
+        self.tabWidget.setCurrentIndex(index)
 
     def openVideoInBrowser(self, item):
         view = item.listWidget().itemWidget(item)
