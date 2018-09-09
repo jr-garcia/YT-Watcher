@@ -13,7 +13,10 @@ WINDOWFILENAME = 'win.ini'
 RESTARTREQUIRED = False
 
 if not is_YTDL_importable():
-    updateYTD(True)
+    try:
+        _ = list(updateYTD(noCheck=True, showMessage=False, useYield=False))
+    except StopIteration:
+        pass
 
 from .Listing import *
 from .Searching import *
@@ -614,6 +617,7 @@ def runMainWindow():
     else:
         app = qApp
     setApp(app)
+
     mainWin = MainWindow()
     app.exec_()
     if RESTARTREQUIRED:

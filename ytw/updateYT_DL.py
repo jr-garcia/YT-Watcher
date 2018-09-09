@@ -1,5 +1,5 @@
 from json import loads
-from os import path, remove, listdir
+from os import path, remove, listdir, makedirs
 
 from PySide.QtGui import QMessageBox
 
@@ -21,7 +21,11 @@ def updateYTD(noCheck=False, showMessage=True, useYield=False):
     """
     With info from https://stackoverflow.com/a/26454035
     """
-    from .youtube_dl import version
+    try:
+        from .youtube_dl import version
+        localVersion = version.__version__
+    except ImportError:
+        localVersion = '1980.01.01'
     from datetime import date
     global CHECKED
     try:
@@ -37,27 +41,34 @@ def updateYTD(noCheck=False, showMessage=True, useYield=False):
         remoteVersion = parsedData['tag_name']
         year, month, day = [int(d) for d in remoteVersion.split('.')]
         remoteDate = date(year, month, day)
-        localVersion = version.__version__
-        year, month, day = [int(d) for d in localVersion.split('.')]
-        localDate = date(year, month, day)
-        isNewVersion = remoteDate > localDate
+        if not noCheck:
+            year, month, day = [int(d) for d in localVersion.split('.')]
+            localDate = date(year, month, day)
+            isNewVersion = remoteDate > localDate
+        else:
+            isNewVersion = True
+
         if useYield:
             yield isNewVersion
 
-        if noCheck or isNewVersion:
+        if isNewVersion:
             if noCheck:
                 reason = 'missing'
             else:
                 reason = 'outdated'
 
+            message = 'Youtube-DL is {}.\n'.format(reason) + 'New version ({}) will be downloaded now.'.format(remoteVersion)
             if showMessage:
-                QMessageBox.warning(None, 'Tool {}'.format(reason), 'Youtube-DL is {}.\n'.format(reason)
-                                    + 'New version ({}) will be downloaded now.'.format(remoteVersion),
-                                    QMessageBox.Ok)
+                QMessageBox.warning(None, 'Tool {}'.format(reason), message, QMessageBox.Ok)
+            else:
+                print(message)
 
             package = download(parsedData['tarball_url'])
+            if not path.exists(CACHESPATH):
+                makedirs(CACHESPATH)
             _packageTar = path.join(CACHESPATH, '_temp_ytd.tar')
-            with open(_packageTar, 'xb') as file:
+            
+            with open(_packageTar, 'wb') as file:
                 file.write(package)
 
             from shutil import unpack_archive, rmtree, move

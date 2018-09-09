@@ -1,4 +1,4 @@
-from .youtube_dl.utils import YoutubeDLError, DownloadError
+# from .youtube_dl.utils import YoutubeDLError, DownloadError
 
 import urllib3 as ulib
 import certifi
@@ -19,12 +19,12 @@ def download(url, retryNumber=0):
         if 200 <= status < 300:
             return result.data
         elif 399 < status < 500:
-            raise DownloadError('Error {}'.format(status))
+            raise RuntimeError('Error {}'.format(status))
         elif status in result.REDIRECT_STATUSES:
             if retryNumber >= MAXTRIES:
-                raise DownloadError('Max retries reached.')
+                raise RuntimeError('Max retries reached.')
             return download(result.headers['location'], retryNumber+1)
     except ulib.exceptions.HTTPError as err:
-        raise DownloadError('URL: {} error:{}'.format(url, err))
+        raise RuntimeError('URL: {} error:{}'.format(url, err))
     except Exception:
         raise
